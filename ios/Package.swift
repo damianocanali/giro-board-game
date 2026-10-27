@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "GiroCore",
-    platforms: [.iOS(.v18), .macOS(.v14)],
+    platforms: [.iOS(.v17), .macOS(.v14)],
     products: [.library(name: "GiroCore", targets: ["GiroCore"])],
     targets: [
         .target(name: "GiroCore", path: "Giro/Core"),
