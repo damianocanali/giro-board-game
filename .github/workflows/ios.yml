@@ -1,0 +1,50 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+jobs:
+  core-tests:
+    name: Game rules (swift test)
+    runs-on: ubuntu-latest
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        shell: bash
+        run: |
+          set +e
+          swift test --package-path ios > test.log 2>&1
+          status=$?
+          cat test.log
+          if [ "$status" != "0" ]; then
+            msg=$(grep -E "error:|failed|XCTAssert" test.log | head -40 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            echo "::error title=swift test failed::$msg"
+          fi
+          exit $status
+
+  app-build:
+    name: App build (iOS Simulator)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version
+        run: xcodebuild -version
+      - name: Build
+        shell: bash
+        run: |
+          set +e
+          xcodebuild -project ios/Giro.xcodeproj -scheme Giro -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build > build.log 2>&1
+          status=$?
+          grep -E "error:|warning:|BUILD" build.log | sort -u | head -200
+          if [ "$status" != "0" ]; then
+            msg=$(grep -E "error:" build.log | sort -u | head -40 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            echo "::error title=xcodebuild failed::$msg"
+          fi
+          exit $status

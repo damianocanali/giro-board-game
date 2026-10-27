@@ -65,6 +65,42 @@ The prototype exposes `window.__giro` for headless testing:
 - `land()`, `buy(plotIndex)`, `setMode('play' | 'build')` and `paint(x, y, kind)` do what their names say.
 - `S` is the game state.
 
+## iOS app (native, in progress)
+
+`ios/` holds the native app: SwiftUI for the interface, RealityKit for the 3D city, iOS 18+.
+
+```
+ios/Giro.xcodeproj     open this in Xcode 16+ (the Giro folder is a synced group: new files are picked up automatically)
+ios/Giro/Core/         pure-Swift game rules: city map, movement, landing effects, economy, missions, build rules
+ios/Giro/Game/         GameModel: turn flow, other players, coins on the street, shop, save/load
+ios/Giro/Scene/        CityScene: RealityKit dioramas, pawn, die, bus, cars, fork arrows, orbit/follow camera
+ios/Giro/UI/           HUD, ROLL dock, fork chooser, duel and land cards, shop and missions sheets
+ios/Package.swift      builds Core alone so `swift test --package-path ios` runs the rule tests (macOS or Linux)
+ios/Tests/             rule tests (the board matches the web prototype square for square)
+```
+
+**Run it:** open `ios/Giro.xcodeproj`, choose your team under Signing & Capabilities (bundle id `com.damianocanali.giro`), and run on an iPhone or a simulator.
+
+**CI:** `.github/workflows/ios.yml` runs the rule tests on Linux and builds the app for the iOS Simulator on a macOS runner on every push to `ios/`.
+
+**Art direction:** a warm toy-diorama look (peach sky, sand blocks, chunky coloured street tiles, a yellow character pawn). Each street tile is coloured by what it does.
+
+**Done in the first build:**
+- Rolling the die, walking the streets and choosing at forks (with buttons or by tapping the 3D arrows).
+- Every landing effect: coins, payday, free roll, plaza duel, bus ride, buying land.
+- Passport stamps and coins on the street.
+- Simulated other players who pay you when they stop at your block, and cars driving around.
+- Bet multiplier, roll regeneration, missions, and a demo shop with the crate odds shown.
+- Progress saved on the device.
+
+**Next:**
+- Build mode (painting buildings with the street rules).
+- Day/night cycle and pedestrians.
+- Sound.
+- StoreKit purchases.
+- A real multiplayer backend.
+- The app icon. Its slot is in `Assets.xcassets/AppIcon` and needs a full-bleed 1024×1024 PNG.
+
 ## Re-render the demo video
 
 You need Python 3, Playwright (Python) with Chromium, ffmpeg, Node and numpy.

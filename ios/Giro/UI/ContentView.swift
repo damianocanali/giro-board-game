@@ -1,0 +1,312 @@
+import SwiftUI
+
+struct ContentView: View {
+    @State private var model = GameModel()
+
+    var body: some View {
+        ZStack {
+            CityView(model: model)
+                .ignoresSafeArea()
+
+            VStack(spacing: 10) {
+                TopBar(model: model)
+                if let t = model.toast {
+                    ToastView(toast: t)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .id(t.id)
+                }
+                Spacer()
+                if !model.forkChoices.isEmpty {
+                    ForkPanel(model: model)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    RollDock(model: model)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+
+            if let v = model.rolledValue {
+                Text("\(v)")
+                    .font(Theme.display(56))
+                    .foregroundStyle(Theme.ink)
+                    .frame(width: 96, height: 96)
+                    .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(Theme.you, lineWidth: 5))
+                    .shadow(color: Theme.ink.opacity(0.25), radius: 14, y: 8)
+                    .transition(.scale.combined(with: .opacity))
+                    .accessibilityLabel("You rolled \(v)")
+            }
+
+            if let d = model.duel {
+                Dimmer()
+                DuelCard(model: model, duel: d)
+            } else if let b = model.saleOffer {
+                Dimmer()
+                SaleCard(model: model, block: b)
+            }
+        }
+        .animation(.spring(duration: 0.35), value: model.toast)
+        .animation(.spring(duration: 0.3), value: model.rolledValue)
+        .animation(.spring(duration: 0.3), value: model.forkChoices)
+        .sheet(isPresented: $model.showShop) { ShopSheet(model: model).presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $model.showMissions) { MissionsSheet(model: model).presentationDetents([.large]) }
+        .task { model.start() }
+    }
+}
+
+// MARK: - Top bar
+
+private struct TopBar: View {
+    let model: GameModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Pill {
+                Image(systemName: "circle.fill").foregroundStyle(Theme.coin).font(.system(size: 12))
+                Text(model.player.coins.formatted()).font(Theme.mono(16))
+            }
+            .accessibilityLabel("\(model.player.coins) coins")
+            Pill {
+                Image(systemName: "die.face.5.fill").foregroundStyle(Theme.ink)
+                Text("\(model.player.rolls)").font(Theme.mono(16))
+                if let s = model.player.secondsToNextRoll(now: model.now) {
+                    Text("+1 in \(s / 60):\(String(format: "%02d", s % 60))").font(Theme.body(11)).foregroundStyle(Theme.ink2)
+                }
+            }
+            .accessibilityLabel("\(model.player.rolls) rolls")
+            Spacer(minLength: 0)
+            Menu {
+                Button { model.scene?.focusOnPawn() } label: { Label("Follow me", systemImage: "figure.walk") }
+                Button { model.scene?.focusOnMyBlocks() } label: { Label("My block", systemImage: "house") }
+                Button { model.scene?.focusOnCity() } label: { Label("Whole city", systemImage: "map") }
+            } label: { RoundIcon(system: "camera.viewfinder") }
+            .accessibilityLabel("Camera")
+            Button { model.showMissions = true } label: { RoundIcon(system: "flag.checkered", badge: Mission.daily.contains { model.player.canClaim($0) }) }
+                .accessibilityLabel("Missions and passport")
+            Button { model.showShop = true } label: { RoundIcon(system: "bag.fill") }
+                .accessibilityLabel("Shop")
+        }
+        .padding(.top, 4)
+    }
+}
+
+private struct Pill<Content: View>: View {
+    @ViewBuilder var content: Content
+    var body: some View {
+        HStack(spacing: 6) { content }
+            .foregroundStyle(Theme.ink)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(Theme.sheet.opacity(0.95), in: Capsule())
+            .overlay(Capsule().stroke(Theme.line, lineWidth: 1))
+            .shadow(color: Theme.ink.opacity(0.08), radius: 8, y: 4)
+    }
+}
+
+private struct RoundIcon: View {
+    var system: String
+    var badge = false
+    var body: some View {
+        Image(systemName: system)
+            .font(.system(size: 17, weight: .bold))
+            .foregroundStyle(Theme.ink)
+            .frame(width: 44, height: 44)
+            .background(Theme.sheet.opacity(0.95), in: Circle())
+            .overlay(Circle().stroke(Theme.line, lineWidth: 1))
+            .overlay(alignment: .topTrailing) {
+                if badge { Circle().fill(Theme.bad).frame(width: 12, height: 12).offset(x: -2, y: 2) }
+            }
+            .shadow(color: Theme.ink.opacity(0.08), radius: 8, y: 4)
+    }
+}
+
+private struct ToastView: View {
+    let toast: Toast
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(toast.title).font(Theme.body(15, .bold))
+            if let d = toast.detail { Text(d).font(Theme.body(13)).opacity(0.8) }
+        }
+        .multilineTextAlignment(.center)
+        .foregroundStyle(Theme.sheet)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(Theme.ink.opacity(0.92), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Roll dock and fork chooser
+
+private struct RollDock: View {
+    let model: GameModel
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            Button { model.cycleMultiplier() } label: {
+                VStack(spacing: 0) {
+                    Text("×\(model.player.multiplier)").font(Theme.display(22))
+                    Text("BET").font(Theme.body(10, .heavy)).foregroundStyle(Theme.ink2)
+                }
+                .foregroundStyle(Theme.ink)
+                .frame(width: 64, height: 64)
+                .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line, lineWidth: 2))
+            }
+            .accessibilityLabel("Bet multiplier \(model.player.multiplier)")
+            .disabled(model.isBusy)
+
+            Button { Task { await model.roll() } } label: {
+                VStack(spacing: 2) {
+                    Text("ROLL").font(Theme.display(30))
+                    Text(model.player.rolls < model.player.multiplier ? "Out of rolls" : "uses \(model.player.multiplier) roll\(model.player.multiplier > 1 ? "s" : "")")
+                        .font(Theme.body(12, .bold)).opacity(0.85)
+                }
+                .foregroundStyle(Theme.ink)
+                .frame(maxWidth: .infinity, minHeight: 64)
+            }
+            .buttonStyle(ChunkyButtonStyle(color: Theme.button, shadow: Theme.buttonShadow))
+            .disabled(!model.canRoll)
+        }
+        .frame(maxWidth: 380)
+    }
+}
+
+struct ChunkyButtonStyle: ButtonStyle {
+    var color: Color
+    var shadow: Color
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(isEnabled ? color : color.opacity(0.45), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(shadow.opacity(isEnabled ? 1 : 0.4), in: RoundedRectangle(cornerRadius: 20, style: .continuous).offset(y: configuration.isPressed ? 2 : 6))
+            .offset(y: configuration.isPressed ? 4 : 0)
+            .animation(.spring(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+private struct ForkPanel: View {
+    let model: GameModel
+    private let colors: [Color] = [Color(hex: 0xE5533D), Color(hex: 0x3E9D4E), Color(hex: 0x4A90D9)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Fork in the road. Which way?").font(Theme.body(15, .heavy)).foregroundStyle(Theme.ink)
+            ForEach(model.forkChoices) { c in
+                Button { model.pickFork(c.id) } label: {
+                    HStack(spacing: 10) {
+                        Text(["A", "B", "C"][c.id % 3])
+                            .font(Theme.display(14)).foregroundStyle(.white)
+                            .frame(width: 26, height: 26)
+                            .background(colors[c.id % 3], in: RoundedRectangle(cornerRadius: 8))
+                        Text(c.label).font(Theme.body(15, .bold)).foregroundStyle(Theme.ink)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background(Theme.paper.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: 420)
+        .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: Theme.ink.opacity(0.2), radius: 16, y: 8)
+    }
+}
+
+// MARK: - Duel and sale cards
+
+private struct Dimmer: View {
+    var body: some View { Color.black.opacity(0.3).ignoresSafeArea().transition(.opacity) }
+}
+
+private struct DuelCard: View {
+    let model: GameModel
+    let duel: DuelState
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("Plaza duel").font(Theme.display(24))
+            Text("\(duel.opponent) from \(duel.city) challenges you. Highest die wins \(GameConfig.duelWinCoins * model.player.multiplier) coins. Losing costs nothing.")
+                .font(Theme.body(15)).multilineTextAlignment(.center).foregroundStyle(Theme.ink2)
+            HStack(spacing: 24) {
+                DieFace(value: duel.you, caption: "You", highlight: true)
+                Text("vs").font(Theme.display(18))
+                DieFace(value: duel.them, caption: duel.opponent, highlight: false)
+            }
+            if let r = duel.result {
+                Text(resultText(r)).font(Theme.body(16, .heavy))
+                Button("Continue") { model.finishDuel() }.buttonStyle(CardButtonStyle())
+            } else {
+                Button("Roll") { model.rollDuel() }.buttonStyle(CardButtonStyle())
+            }
+        }
+        .foregroundStyle(Theme.ink)
+        .padding(22)
+        .frame(maxWidth: 360)
+        .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(24)
+    }
+
+    private func resultText(_ r: Rules.DuelResult) -> String {
+        switch r {
+        case .win(let n): "You win \(n) coins."
+        case .tie(let n): "A tie: you both get \(n) coins."
+        case .lose: "\(duel.opponent) wins this one."
+        }
+    }
+}
+
+private struct DieFace: View {
+    var value: Int?
+    var caption: String
+    var highlight: Bool
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value.map { "\($0)" } ?? "?")
+                .font(Theme.display(32))
+                .frame(width: 64, height: 64)
+                .background(highlight ? Theme.youSoft : Theme.paper.opacity(0.5), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(highlight ? Theme.you : Theme.ink, lineWidth: 2.5))
+            Text(caption).font(Theme.body(13)).foregroundStyle(Theme.ink2)
+        }
+    }
+}
+
+private struct SaleCard: View {
+    let model: GameModel
+    let block: Int
+
+    var body: some View {
+        let price = model.map.plotPrices[block] ?? 0
+        VStack(spacing: 12) {
+            Text("Plot \(block + 1) is for sale").font(Theme.display(22))
+            Text("\(price) coins. You have \(model.player.coins).\(block == 11 ? " The bus line runs along it." : "")")
+                .font(Theme.body(15)).multilineTextAlignment(.center).foregroundStyle(Theme.ink2)
+            HStack(spacing: 10) {
+                Button("Not now") { model.answerSale(buy: false) }.buttonStyle(CardButtonStyle(filled: false))
+                Button("Buy plot") { model.answerSale(buy: true) }.buttonStyle(CardButtonStyle()).disabled(model.player.coins < price)
+            }
+        }
+        .foregroundStyle(Theme.ink)
+        .padding(22)
+        .frame(maxWidth: 360)
+        .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(24)
+    }
+}
+
+struct CardButtonStyle: ButtonStyle {
+    var filled = true
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Theme.body(16, .heavy))
+            .foregroundStyle(filled ? Theme.ink : Theme.ink)
+            .padding(.horizontal, 22).padding(.vertical, 12)
+            .frame(minWidth: 120)
+            .background(filled ? Theme.button.opacity(isEnabled ? 1 : 0.4) : Theme.paper.opacity(0.5), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+    }
+}

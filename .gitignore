@@ -4,3 +4,11 @@ tools/video/build/
 giro_silent*.mp4
 *_ev.json
 .DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+.build/
+.swiftpm/
+ios/Package.resolved
