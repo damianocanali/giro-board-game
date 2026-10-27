@@ -1,0 +1,6 @@
+node_modules/
+tools/video/build/
+*.wav
+giro_silent*.mp4
+*_ev.json
+.DS_Store

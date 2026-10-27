@@ -1,0 +1,736 @@
+<meta charset="utf-8">
+<title>Giro</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;600;800&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Giro = Mondo Dado x Città. The 3D city is the board: the hero is the live city with your pawn, HUD pills, and a roll dock.
+   Below: three working cards (your turn: missions + passport + square legend; your block: income, needs, build; shop & land).
+   Palette: planning-office paper, charcoal ink, purple = you, gold = coins. */
+:root{
+  --paper:#EEF1F5; --sheet:#FFFFFF; --ink:#1B2230; --ink-2:#5B6577; --line:#D4DAE3;
+  --mine:#7B4DF2; --mine-2:#EEE7FE; --good:#1F9D60; --warn:#E89B1C; --bad:#E5333B; --coin:#E0A100;
+  --display:"Archivo Black", "Arial Black", Impact, system-ui, sans-serif;
+  --body:"Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+html,body{background:var(--paper);color:var(--ink)}
+[hidden]{display:none!important}
+body{font-family:var(--body);font-size:15px;line-height:1.5;padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+.wrap{max-width:1240px;margin:0 auto;padding-block:18px 40px;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-end}
+h1{font:400 52px/0.95 var(--display);margin:0} h1 span{color:var(--mine)}
+.sub{color:var(--ink-2);margin:6px 0 0;max-width:66ch;font-weight:600}
+.chip{font:600 12px var(--mono);letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--line);border-radius:99px;padding:6px 12px;background:var(--sheet);color:var(--ink-2)}
+.stage{position:relative;border-radius:20px;overflow:hidden;border:1px solid var(--line);height:min(76vh,720px);min-height:480px;background:#BFD9EE}
+#gl{display:block;width:100%;height:100%;touch-action:none}
+.hud{position:absolute;pointer-events:none} .hud > *{pointer-events:auto}
+.tl{left:12px;top:12px;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100% - 24px)}
+.pill{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:12px;padding:7px 11px;font:800 14px var(--body);display:flex;gap:7px;align-items:center;font-variant-numeric:tabular-nums;box-shadow:0 6px 18px rgba(27,34,48,.08)}
+.pill small{font-weight:600;color:var(--ink-2)}
+.pill .dot{width:10px;height:10px;border-radius:50%}
+.tr{right:12px;top:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+@media (max-width: 699px){ .tr{top:auto;bottom:96px} }
+.seg{display:flex;background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px}
+.seg button{appearance:none;border:0;background:transparent;border-radius:9px;padding:7px 11px;font:800 13px var(--body);color:var(--ink-2);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.toast{left:50%;top:64px;transform:translateX(-50%);background:var(--ink);color:#fff;border-radius:14px;padding:10px 16px;font:700 14px var(--body);max-width:min(92%,460px);text-align:center;transition:opacity .25s;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.toast small{display:block;font-weight:600;color:#C9D1DE}
+@media (max-width: 699px){ .toast{top:104px} }
+.dock{left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:8px;align-items:stretch}
+.mult{appearance:none;border:2px solid var(--line);background:#fff;border-radius:16px;padding:0 14px;font:400 20px var(--display);cursor:pointer;color:var(--ink);min-width:62px}
+.mult small{display:block;font:600 10.5px var(--mono);color:var(--ink-2);letter-spacing:.04em}
+.rollbtn{appearance:none;border:0;border-radius:18px;padding:12px 26px;background:var(--mine);color:#fff;font:400 26px/1 var(--display);cursor:pointer;box-shadow:0 8px 0 #4F2BB0, 0 14px 28px rgba(79,43,176,.35);letter-spacing:.02em}
+.rollbtn small{display:block;font:700 12px var(--body);opacity:.85;margin-top:4px;letter-spacing:0}
+.rollbtn:active{transform:translateY(4px);box-shadow:0 4px 0 #4F2BB0}
+.rollbtn:disabled{background:#A99AD6;box-shadow:0 8px 0 #8C7DBD;cursor:not-allowed}
+.stage.forking .tr{display:none}
+.rolled{left:50%;top:42%;transform:translate(-50%,-50%);width:96px;height:96px;border-radius:24px;background:#fff;border:4px solid var(--mine);display:grid;place-items:center;font:400 54px var(--display);color:var(--mine);box-shadow:0 14px 34px rgba(79,43,176,.35);transition:opacity .3s, transform .3s}
+.fork{left:50%;bottom:14px;transform:translateX(-50%);display:grid;gap:6px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:16px;padding:10px;min-width:min(340px,calc(100vw - 64px));box-shadow:0 10px 30px rgba(27,34,48,.18)}
+.fork p{font:800 14px var(--body);margin:0 0 2px}
+.fork button{appearance:none;border:0;border-radius:11px;padding:9px 12px;font:800 14px var(--body);cursor:pointer;text-align:left;display:flex;gap:10px;align-items:center;color:var(--ink);background:var(--paper)}
+.fork button i{width:22px;height:22px;border-radius:7px;flex:none;color:#fff;font:400 13px/22px var(--display);text-align:center;font-style:normal}
+.tray{left:12px;top:100px;display:flex;gap:6px;flex-wrap:wrap;max-width:min(560px,calc(100% - 24px));background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:14px;padding:6px}
+@media (min-width: 700px){ .tray{top:auto;bottom:12px} }
+@media (max-width: 699px){ .tray{flex-wrap:nowrap;overflow-x:auto} .tool{flex:none} }
+.tool{appearance:none;border:2px solid transparent;background:var(--paper);border-radius:10px;padding:5px 7px;font:800 12px var(--body);cursor:pointer;display:flex;gap:6px;align-items:center;color:var(--ink)}
+.tool i{width:16px;height:16px;border-radius:4px;display:block}
+.tool small{font:600 11px var(--mono);color:var(--ink-2)}
+.tool[aria-pressed="true"]{border-color:var(--ink);background:#fff}
+.modal{inset:0;display:grid;place-items:center;background:rgba(27,34,48,.35);pointer-events:auto}
+.mbox{background:#fff;border-radius:20px;padding:20px;width:min(360px,calc(100% - 32px));display:grid;gap:12px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.mbox h3{font:400 22px var(--display);margin:0}
+.dice2{display:flex;justify-content:center;gap:22px;align-items:center}
+.dice2 div{display:grid;gap:4px;font:700 13px var(--body);color:var(--ink-2)}
+.dice2 b{width:64px;height:64px;border-radius:14px;border:2px solid var(--ink);display:grid;place-items:center;font:400 32px var(--display);color:var(--ink);background:var(--paper)}
+.dice2 .me b{border-color:var(--mine);color:var(--mine);background:var(--mine-2)}
+button:focus-visible{outline:3px solid var(--mine);outline-offset:2px}
+
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+@media (max-width: 980px){ .cards{grid-template-columns:minmax(0,1fr)} }
+.card{background:var(--sheet);border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card h2{font:400 20px var(--display);margin:0}
+.card h3{font:800 13px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);margin:4px 0 0}
+p{margin:0} .note{font-size:12.5px;color:var(--ink-2)}
+.list{display:grid;gap:7px}
+.row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;background:var(--paper);border-radius:12px;padding:9px 11px;font-size:14px}
+.row b{display:block;font-weight:800} .row small{color:var(--ink-2);font-weight:600}
+.bar{height:7px;border-radius:4px;background:#DCE1E9;overflow:hidden;margin-top:5px} .bar i{display:block;height:100%;background:var(--mine);border-radius:4px}
+.legend{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:13px;font-weight:600}
+.legend span{display:flex;gap:7px;align-items:center} .legend i{width:12px;height:12px;border-radius:50%;flex:none;border:1px solid rgba(0,0,0,.15)}
+.stamps{display:flex;flex-wrap:wrap;gap:6px}
+.stamps span{font:600 12px var(--mono);padding:4px 8px;border-radius:8px;background:var(--paper);color:var(--ink-2)}
+.stamps span.got{background:var(--mine-2);color:#4A22B8}
+.meters{display:grid;gap:8px}
+.meter{display:grid;grid-template-columns:96px 1fr 42px;gap:10px;align-items:center;font-weight:700;font-size:14px;font-variant-numeric:tabular-nums}
+.meter .t{height:9px;border-radius:5px;background:var(--paper);overflow:hidden}
+.meter .t i{display:block;height:100%;border-radius:5px}
+.meter span:last-child{text-align:right;color:var(--ink-2);font-family:var(--mono);font-size:12.5px}
+.tip{background:var(--mine-2);color:#3B1E99;border-radius:12px;padding:10px 12px;font-weight:600;font-size:14px}
+.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.kv div{background:var(--paper);border-radius:12px;padding:10px}
+.kv b{display:block;font:400 22px var(--display);font-variant-numeric:tabular-nums}
+.kv small{font-size:12px;color:var(--ink-2);font-weight:600}
+.feed{display:grid;gap:4px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.feed div b{color:var(--ink)} .feed .c{color:#8A6400}
+.btn{appearance:none;border:0;border-radius:12px;padding:10px 13px;font:800 14px var(--body);cursor:pointer;white-space:nowrap}
+.btn.k{background:var(--ink);color:#fff} .btn.m{background:var(--mine);color:#fff} .btn.g{background:#fff;border:2px solid var(--line);color:var(--ink)} .btn.y{background:var(--coin);color:#2B1F00}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.issues{display:grid;gap:6px}
+.issue{border-radius:10px;padding:9px 11px;font-weight:600;font-size:14px}
+.issue.bad{background:#FDE8E9;color:#8E1B21} .issue.ok{background:#E3F5EC;color:#11603A}
+.lb{display:grid;gap:4px;font:600 13px var(--mono);font-variant-numeric:tabular-nums}
+.lb div{display:grid;grid-template-columns:20px 1fr auto;gap:8px;padding:6px 8px;border-radius:8px;background:var(--paper)}
+.lb .me{background:var(--mine-2);color:#4A22B8}
+.goal{background:#FFF6E0;border-radius:12px;padding:10px 12px;font-weight:600;font-size:14px;display:grid;gap:6px}
+.goal .t{height:8px;border-radius:4px;background:#F3E3B5;overflow:hidden} .goal .t i{display:block;height:100%;background:var(--coin)}
+</style>
+
+<div class="wrap">
+  <header>
+    <div><h1>Gir<span>o</span></h1><p class="sub">The city is the board. Roll the die and drive through blocks other players built: shops pay you, parks give free rolls, bus stops are shortcuts. When other players land on your block, you get paid. Spend it on more land.</p></div>
+    <span class="chip">Prototype · Mondo Dado × Città</span>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="gl" aria-label="3D city board. Your pawn is purple. Drag to rotate, scroll or pinch to zoom."></canvas>
+    <div class="hud tl">
+      <div class="pill"><span style="color:var(--coin);font:400 16px var(--display)">¢</span><span id="hCoins">0</span></div>
+      <div class="pill"><span style="font:400 15px var(--display)">⚀</span><span id="hRolls">0</span><small id="hRegen"></small></div>
+      <div class="pill"><small>Stamps</small><span id="hStamps">0</span></div>
+      <div class="pill"><span id="hClock">08:00</span></div>
+    </div>
+    <div class="hud tr">
+      <div class="seg" role="group" aria-label="Mode"><button id="mPlay" aria-pressed="true">Play</button><button id="mBuild" aria-pressed="false">Build</button></div>
+      <div class="seg" role="group" aria-label="Camera"><button id="cFollow" aria-pressed="true">Follow</button><button id="cMine" aria-pressed="false">My block</button><button id="cCity" aria-pressed="false">City</button></div>
+    </div>
+    <div class="hud dock" id="dock">
+      <button class="mult" id="mult" aria-label="Roll multiplier">×1<small>BET</small></button>
+      <button class="rollbtn" id="roll">ROLL<small id="rollSub">uses 1 roll</small></button>
+    </div>
+    <div class="hud rolled" id="rolled" style="opacity:0" aria-live="polite"></div>
+    <div class="hud fork" id="fork" hidden><p>Fork in the road. Which way?</p><div id="forkOpts" style="display:grid;gap:6px"></div></div>
+    <div class="hud tray" id="tray" hidden></div>
+    <div class="hud modal" id="modal" hidden><div class="mbox" id="mbox"></div></div>
+    <div class="hud toast" id="toast" style="opacity:0"></div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Your turn</h2>
+      <h3>Today's missions</h3>
+      <div class="list" id="missions"></div>
+      <h3>Passport</h3>
+      <div class="stamps" id="stamps"></div>
+      <h3>What the squares do</h3>
+      <div class="legend">
+        <span><i style="background:#F2A93B"></i>Shop or café: coins</span>
+        <span><i style="background:#3D7BE0"></i>Office: payday</span>
+        <span><i style="background:#3FAE6A"></i>Park: free roll</span>
+        <span><i style="background:#FFFFFF"></i>Plaza: dice duel</span>
+        <span><i style="background:#14B8C8"></i>Bus stop: shortcut</span>
+        <span><i style="background:#7B4DF2"></i>Your block: +1 roll</span>
+        <span><i style="background:#A6D95B"></i>For sale: buy land</span>
+        <span><i style="background:#F5C542"></i>School: tutoring</span>
+      </div>
+      <p class="note">Gold coins on the street are yours as you drive past. The bet multiplies every reward, but each roll costs that many dice.</p>
+    </div>
+    <div class="card">
+      <h2>Your block</h2>
+      <div class="kv"><div><b id="kVis">0</b><small>visits today</small></div><div><b id="kInc">0</b><small>coins earned</small></div><div><b id="kRes">0</b><small>residents</small></div></div>
+      <div class="feed" id="feed"><div>When other players land next to your shops, café, offices or plaza, you get paid.</div></div>
+      <div class="meters" id="meters"></div>
+      <div class="tip" id="tip"></div>
+      <h3>Build</h3>
+      <p class="note">Switch to Build, pick something from the tray, then tap a square on your purple land. Buildings need a street next to them, and streets at your border must continue your neighbours' streets.</p>
+      <div class="issues" id="issues"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn k" id="check">Check streets</button><button class="btn m" id="open" disabled>Open to the city</button></div>
+    </div>
+    <div class="card">
+      <h2>Shop</h2>
+      <div class="list" id="shop"></div>
+      <p class="note" id="odds">Mystery crate odds: 3 rolls 50% · 6 rolls 30% · 12 rolls 15% · 25 rolls 5%. Demo store: nothing is charged.</p>
+      <h2 style="margin-top:4px">Land for sale</h2>
+      <div class="list" id="lots"></div>
+      <div class="goal" id="goal"></div>
+      <h3>City board · visits today</h3>
+      <div class="lb" id="lb"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+const $ = id => document.getElementById(id);
+const lerp = (a,b,k) => a+(b-a)*k;
+// ================= map model (Città)
+const B = 6, NB = 5, G = B*NB, CS = 2;
+const HO = [2,3,2,3,2], VO = [3,2,2,3,2];
+const KIND = {
+  '=':{ n:'Street', cost:5, col:'#2B3140' },
+  h:{ n:'House', cost:20, col:'#F06A4F', res:4 },
+  a:{ n:'Apartments', cost:60, col:'#E58BA8', res:12 },
+  s:{ n:'Shop', cost:40, col:'#F2A93B', jobs:3, shop:10, value:3 },
+  c:{ n:'Café', cost:35, col:'#B8784A', jobs:2, shop:8, value:2 },
+  o:{ n:'Office', cost:80, col:'#3D7BE0', jobs:15, value:2 },
+  k:{ n:'School', cost:70, col:'#F5C542', jobs:4, value:1 },
+  p:{ n:'Park', cost:15, col:'#3FAE6A', green:12, value:1 },
+  f:{ n:'Plaza', cost:25, col:'#C9CED8', green:6, value:2 },
+  b:{ n:'Bus stop', cost:30, col:'#2F80ED' },
+  '.':{ n:'Clear', cost:0, col:'#CFE3C2' },
+};
+const NOUN = { s:'shop', c:'café', o:'office', k:'school', p:'park', f:'plaza' };
+const DEST = 'scokpf';
+const OWN = [
+  ['Giulia','Roma'],['Kenji','Osaka'],['Ana','Lisboa'],['Amara','Lagos'],['Lucas','São Paulo'],
+  ['Leila','Marrakech'],['Maya','Brooklyn'],['Sven','Oslo'],['Hiro','Tokyo'],['Noor','Dubai'],
+  ['Chloé','Paris'],['SALE',''],['You','your city'],['SALE',''],['Tunde','Accra'],
+  ['Ines','Madrid'],['Omar','Cairo'],['SALE',''],['Priya','Mumbai'],['Mateo','Bogotá'],
+  ['Ewa','Kraków'],['Liam','Dublin'],['Yuki','Sapporo'],['Zara','London'],['Felix','Berlin']];
+const PRICE = { 11:300, 13:250, 17:200 };
+const ME = 12;
+const owner = OWN.map((o,i) => o[0]==='SALE' ? 'sale' : (i===ME ? 'me' : 'other'));
+function rng(seed){ let s=seed; return ()=>((s=(s*16807)%2147483647)/2147483647); }
+const blockOf = (x,y) => Math.floor(y/B)*NB + Math.floor(x/B);
+let grid = Array.from({length:G},()=>Array(G).fill('.'));
+for (let by=0;by<NB;by++){ const y=by*B+HO[by]; for(let x=0;x<G;x++) grid[y][x]='='; }
+for (let bx=0;bx<NB;bx++){ const x=bx*B+VO[bx]; for(let y=0;y<G;y++) grid[y][x]='='; }
+const roadAt = (g,x,y) => x>=0&&y>=0&&x<G&&y<G&&g[y][x]==='=';
+const nearRoad = (g,x,y) => roadAt(g,x+1,y)||roadAt(g,x-1,y)||roadAt(g,x,y+1)||roadAt(g,x,y-1);
+const FLAV = ['hhscphoa','ohoacsk','hhaspcf','ssccohp','hhhakpsf','oooacsf'];
+{ const r = rng(7); for (let y=0;y<G;y++) for (let x=0;x<G;x++){ const bi = blockOf(x,y); if (owner[bi]!=='other' || grid[y][x]!=='.' || !nearRoad(grid,x,y) || r()<.12) continue; const fl = FLAV[bi%FLAV.length]; grid[y][x] = fl[Math.floor(r()*fl.length)]; } }
+const MINE0 = [".h=s..","hp=hcs","======","hh=p=o",".a===h",".f=hp."];
+{ const bx = (ME%NB)*B, by = Math.floor(ME/NB)*B; MINE0.forEach((row,y) => row.split('').forEach((c,x) => grid[by+y][bx+x] = c)); }
+const ROUTE_CELLS = [];
+for (let x=8;x<=21;x++) ROUTE_CELLS.push([x,9]); for (let y=10;y<=21;y++) ROUTE_CELLS.push([21,y]); for (let x=20;x>=8;x--) ROUTE_CELLS.push([x,21]); for (let y=20;y>=10;y--) ROUTE_CELLS.push([8,y]);
+const routeIndex = new Map(ROUTE_CELLS.map(([x,y],i) => [x+','+y, i]));
+const onRoute = new Set(routeIndex.keys());
+[[10,8],[15,22],[22,18],[20,10]].forEach(([x,y]) => { if (owner[blockOf(x,y)]==='other' && grid[y][x]!=='=') grid[y][x] = 'b'; });
+let draft = null;
+
+// ================= three.js scene
+const canvas = $('gl'), stage = $('stage');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0xBFD9EE); scene.fog = new THREE.Fog(0xBFD9EE, 90, 170);
+const camera = new THREE.PerspectiveCamera(42, 1, .1, 500);
+const hemi = new THREE.HemisphereLight(0xffffff, 0x7d8f74, .8); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, .8); sun.castShadow = true; sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera, { left:-40, right:40, top:40, bottom:-40, far:220 }); scene.add(sun); scene.add(sun.target);
+const W = G*CS, HALF = W/2;
+const cx = x => x*CS - HALF + CS/2, cz = y => y*CS - HALF + CS/2;
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(W+30, W+30), new THREE.MeshLambertMaterial({ color:0x9CC58A }));
+ground.rotation.x = -Math.PI/2; ground.position.y = -.02; ground.receiveShadow = true; scene.add(ground);
+const mats = {}; const M = (c, o={}) => { const k = c+JSON.stringify(o); return mats[k] || (mats[k] = new THREE.MeshLambertMaterial({ color:c, ...o })); };
+function winTex(base, cols=3, rows=6){ const c = document.createElement('canvas'); c.width = 64; c.height = 128; const x = c.getContext('2d'); x.fillStyle = base; x.fillRect(0,0,64,128);
+  for (let r=0;r<rows;r++) for (let k=0;k<cols;k++){ x.fillStyle = '#E8F0F8'; x.fillRect(6+k*(56/cols), 8+r*(118/rows), 56/cols-6, 118/rows-8); }
+  return new THREE.CanvasTexture(c); }
+function winGlow(cols=3, rows=6){ const c = document.createElement('canvas'); c.width = 64; c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0,0,64,128);
+  const r0 = rng(cols*rows+3); for (let r=0;r<rows;r++) for (let k=0;k<cols;k++){ if (r0()<.6){ x.fillStyle = '#FFD27A'; x.fillRect(6+k*(56/cols), 8+r*(118/rows), 56/cols-6, 118/rows-8); } }
+  return new THREE.CanvasTexture(c); }
+const nightMats = [];
+function glassMat(map, glow){ const m = new THREE.MeshLambertMaterial({ map, emissive:0xffffff, emissiveMap:glow, emissiveIntensity:0 }); nightMats.push(m); return m; }
+const MAT = { apt: glassMat(winTex('#E58BA8',3,8), winGlow(3,8)), off: glassMat(winTex('#3D7BE0',4,10), winGlow(4,10)) };
+const cellGroups = new Map();
+const cityRoot = new THREE.Group(); scene.add(cityRoot);
+function sh(o){ o.traverse(m => { if (m.isMesh){ m.castShadow = true; m.receiveShadow = true; } }); return o; }
+function box(w,h,d,mat,y=0){ const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat); m.position.y = y + h/2; return m; }
+function tree(x,z,s=1){ const g = new THREE.Group(); const t = new THREE.Mesh(new THREE.CylinderGeometry(.06*s,.08*s,.4*s,6), M(0x7A5634)); t.position.y = .2*s; const c = new THREE.Mesh(new THREE.SphereGeometry(.32*s,10,8), M(0x2F8A4F)); c.position.y = .58*s; g.add(t,c); g.position.set(x,0,z); return g; }
+function buildCell(x, y, g){
+  const k = `${x},${y}`; const old = cellGroups.get(k); if (old) cityRoot.remove(old);
+  const t = g[y][x], grp = new THREE.Group(); grp.position.set(cx(x), 0, cz(y)); const sale = owner[blockOf(x,y)]==='sale';
+  if (t==='='){
+    const r = new THREE.Mesh(new THREE.PlaneGeometry(CS, CS), M(0x2B3140)); r.rotation.x = -Math.PI/2; r.position.y = .01; r.receiveShadow = true; grp.add(r);
+    const R = (dx,dy) => roadAt(g,x+dx,y+dy), dash = M(0xF2F4F7), H = R(-1,0)||R(1,0), V = R(0,-1)||R(0,1);
+    if (H && !V){ const d = new THREE.Mesh(new THREE.PlaneGeometry(CS*.32, .07), dash); d.rotation.x = -Math.PI/2; d.position.y = .02; grp.add(d); }
+    if (V && !H){ const d = new THREE.Mesh(new THREE.PlaneGeometry(.07, CS*.32), dash); d.rotation.x = -Math.PI/2; d.position.y = .02; grp.add(d); }
+    if (H && V){ for (let i=-2;i<=2;i++){ const s = new THREE.Mesh(new THREE.PlaneGeometry(.12,.5), dash); s.rotation.x = -Math.PI/2; s.position.set(i*.28,.021,-.78); grp.add(s); } }
+  } else {
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(CS*.98, .12, CS*.98), M(t==='.'||t==='p' ? (sale ? 0xB7D69E : 0xCFD6DF) : 0xD9DEE6)); slab.position.y = .06; slab.receiveShadow = true; grp.add(slab);
+    const top = .12;
+    if (t==='h'){ const b = box(1.15,.8,1.0, M(0xF06A4F), top); const roof = new THREE.Mesh(new THREE.CylinderGeometry(.01,.82,.55,4,1), M(0x8C3B2E)); roof.rotation.y = Math.PI/4; roof.position.y = top+.8+.27; const door = box(.22,.36,.04,M(0x5B3A22),top); door.position.z = .52; grp.add(b, roof, door); }
+    else if (t==='a'){ const h = 2.4 + ((x*7+y*3)%3)*.6; const b = new THREE.Mesh(new THREE.BoxGeometry(1.35,h,1.35), MAT.apt); b.position.y = top+h/2; grp.add(b, box(1.4,.1,1.4,M(0x8A4A63),top+h)); }
+    else if (t==='o'){ const h = 3.6 + ((x*5+y*11)%3)*.9; const b = new THREE.Mesh(new THREE.BoxGeometry(1.45,h,1.45), MAT.off); b.position.y = top+h/2; grp.add(b, box(.6,.3,.6,M(0x9AA4B5),top+h)); }
+    else if (t==='s'){ const b = box(1.55,.85,1.3, M(0xF7EBD4), top); const aw = new THREE.Mesh(new THREE.BoxGeometry(1.6,.08,.45), M(0xF2A93B)); aw.position.set(0, top+.7, .78); aw.rotation.x = .35; const sign = box(1.0,.22,.06, M(0xF2A93B), top+.88); sign.position.z = .66; grp.add(b, aw, sign); }
+    else if (t==='c'){ const b = box(1.0,.7,.9, M(0xB8784A), top); b.position.set(-.35, b.position.y, -.3); grp.add(b);
+      [[.45,.35],[-.2,.55]].forEach(([px,pz],i) => { const pole = new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.6,6), M(0x444444)); pole.position.set(px,top+.3,pz); const um = new THREE.Mesh(new THREE.ConeGeometry(.42,.22,10), M(i?0xE5533D:0xF7EBD4)); um.position.set(px,top+.68,pz); const tb = new THREE.Mesh(new THREE.CylinderGeometry(.2,.2,.04,10), M(0xFFFFFF)); tb.position.set(px,top+.32,pz); grp.add(pole,um,tb); }); }
+    else if (t==='k'){ const b = box(1.6,1.0,1.3, M(0xF5C542), top); const r = box(1.66,.1,1.36, M(0x9A6B1F), top+1.0); const pole = new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,1.4,6), M(0xDDDDDD)); pole.position.set(.7,top+.7,.75); const flag = box(.35,.22,.02, M(0x2F80ED), 0); flag.position.set(.88,top+1.2,.75); grp.add(b,r,pole,flag); }
+    else if (t==='p'){ const gr = new THREE.Mesh(new THREE.BoxGeometry(CS*.94,.06,CS*.94), M(0x3FAE6A)); gr.position.y = .15; grp.add(gr); const path = new THREE.Mesh(new THREE.BoxGeometry(.25,.07,CS*.94), M(0xE7DFC8)); path.position.y = .16; path.rotation.y = .6; grp.add(path);
+      grp.add(tree(-.5,-.45,1.2), tree(.5,-.3,1.0), tree(-.2,.55,1.1)); const bench = box(.5,.12,.16, M(0x7A5634), .18); bench.position.set(.45,bench.position.y,.45); grp.add(bench); }
+    else if (t==='f'){ const pl = new THREE.Mesh(new THREE.BoxGeometry(CS*.94,.05,CS*.94), M(0xE3E6EC)); pl.position.y = .14; const b1 = new THREE.Mesh(new THREE.CylinderGeometry(.6,.65,.18,20), M(0xB9C0CC)); b1.position.y = .25; const w = new THREE.Mesh(new THREE.CylinderGeometry(.5,.5,.04,20), M(0x5DB7E8)); w.position.y = .33; const sp = new THREE.Mesh(new THREE.CylinderGeometry(.06,.1,.5,8), M(0xB9C0CC)); sp.position.y = .5; grp.add(pl,b1,w,sp); }
+    else if (t==='b'){ const roof = box(1.0,.06,.45, M(0x14B8C8), top+.8); const back = box(1.0,.75,.05, M(0xBFE9F0,{transparent:true,opacity:.75}), top); back.position.z = -.2; const bench = box(.7,.1,.2, M(0x555555), top+.25); const sign = new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,1.1,6), M(0x777777)); sign.position.set(.6,top+.55,.25); const disc = new THREE.Mesh(new THREE.CylinderGeometry(.16,.16,.04,16), M(0x14B8C8)); disc.rotation.x = Math.PI/2; disc.position.set(.6,top+1.1,.25); grp.add(roof,back,bench,sign,disc); }
+    else if (t==='.'){ if (!sale && ((x*13+y*7)%4===0)) grp.add(tree(.3,.2,.8)); if (sale && ((x+y)%3===0)) grp.add(tree(-.3,.3,1)); }
+    const face = roadAt(g,x,y+1) ? 0 : roadAt(g,x+1,y) ? Math.PI/2 : roadAt(g,x,y-1) ? Math.PI : roadAt(g,x-1,y) ? -Math.PI/2 : 0;
+    grp.children.forEach((m,i) => { if (i>0){ const p = m.position.clone(); m.position.set(p.x*Math.cos(face)+p.z*Math.sin(face), p.y, -p.x*Math.sin(face)+p.z*Math.cos(face)); m.rotation.y += face; } });
+  }
+  sh(grp); cityRoot.add(grp); cellGroups.set(k, grp);
+}
+function buildAll(g){ for (let y=0;y<G;y++) for (let x=0;x<G;x++) buildCell(x,y,g); }
+buildAll(grid);
+
+// labels
+const spriteRedraws = [];
+function textSprite(lines, bg, fg, w=420){ const c = document.createElement('canvas'), x = c.getContext('2d'); const h = 70 + (lines.length-1)*44; c.width = w; c.height = h;
+  const t = new THREE.CanvasTexture(c);
+  const draw = () => { x.clearRect(0,0,w,h); x.fillStyle = bg; x.beginPath(); x.roundRect(4,4,w-8,h-8,18); x.fill(); x.fillStyle = fg; x.textAlign = 'center';
+    lines.forEach((l,i) => { x.font = i===0 ? '400 34px "Archivo Black", "Arial Black", sans-serif' : '600 26px "IBM Plex Mono", monospace'; x.fillText(l, w/2, 46 + i*44); }); t.needsUpdate = true; };
+  draw(); spriteRedraws.push(draw);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:t, depthTest:false, transparent:true })); s.scale.set(w/90, h/90, 1); s.renderOrder = 5; return s; }
+const plotFX = new THREE.Group(); scene.add(plotFX);
+function rebuildPlots(){
+  plotFX.clear();
+  OWN.forEach((o,bi) => {
+    const bx = (bi%NB)*B, by = Math.floor(bi/NB)*B, x0 = cx(bx)-CS/2, z0 = cz(by)-CS/2, S = B*CS;
+    if (owner[bi]==='me'){ for (const [a,b,w,d] of [[x0+S/2,z0,S,.18],[x0+S/2,z0+S,S,.18],[x0,z0+S/2,.18,S],[x0+S,z0+S/2,.18,S]]){ const m = new THREE.Mesh(new THREE.BoxGeometry(w,.06,d), new THREE.MeshBasicMaterial({ color:0x7B4DF2 })); m.position.set(a,.2,b); plotFX.add(m); } }
+    if (owner[bi]==='sale'){ const s = textSprite(['FOR SALE', `${PRICE[bi]} coins`], '#FFFFFF', '#1B2230'); s.position.set(x0+S/2, 3.2, z0+S/2); s.userData = { sale: bi }; plotFX.add(s);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(.06,.06,2.4,6), M(0xffffff)); post.position.set(x0+S/2, 1.2, z0+S/2); plotFX.add(post); }
+    if (owner[bi]==='other' && (bi%3===0)){ const s = textSprite([`${o[0]} · ${o[1]}`], 'rgba(255,255,255,.92)', '#1B2230', 440); s.scale.multiplyScalar(.75); s.position.set(x0+S/2, 5.2, z0+S/2); plotFX.add(s); }
+  });
+}
+rebuildPlots();
+
+// bus line + lamps
+const routeFX = new THREE.Group(); scene.add(routeFX);
+const routeMat = new THREE.MeshBasicMaterial({ color:0x14B8C8, transparent:true, opacity:.55 });
+ROUTE_CELLS.forEach(([x,y],i) => { const [nx,ny] = ROUTE_CELLS[(i+1)%ROUTE_CELLS.length]; const horiz = ny===y;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(horiz ? CS : .22, horiz ? .22 : CS), routeMat); m.rotation.x = -Math.PI/2; m.position.set((cx(x)+cx(nx))/2, .03, (cz(y)+cz(ny))/2); routeFX.add(m); });
+const lampMat = new THREE.MeshBasicMaterial({ color:0xCFCFCF }), lampGlow = [];
+for (let y=0;y<G;y++) for (let x=0;x<G;x++){ if (grid[y][x]!=='=') continue; const h = roadAt(grid,x-1,y)||roadAt(grid,x+1,y), v = roadAt(grid,x,y-1)||roadAt(grid,x,y+1); if (!(h&&v)) continue;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(.04,.05,1.5,6), M(0x5B6577)); pole.position.set(cx(x)+.92, .75, cz(y)+.92);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.12,8,6), lampMat); bulb.position.set(cx(x)+.92, 1.55, cz(y)+.92); routeFX.add(pole, bulb);
+  const glow = new THREE.Mesh(new THREE.CircleGeometry(.9,20), new THREE.MeshBasicMaterial({ color:0xFFD27A, transparent:true, opacity:0, depthWrite:false })); glow.rotation.x = -Math.PI/2; glow.position.set(cx(x)+.6,.035,cz(y)+.6); routeFX.add(glow); lampGlow.push(glow.material); }
+
+// ================= board squares: each street square takes its effect from the building it faces
+const PRI = 'bfpcsokah';
+function frontage(x,y,g=grid){
+  let best = null, bp = 99;
+  for (const [dx,dy] of [[0,1],[1,0],[0,-1],[-1,0]]){ const nx=x+dx, ny=y+dy; if (nx<0||ny<0||nx>=G||ny>=G) continue; const t = g[ny][nx]; if (t==='=') continue;
+    const bi = blockOf(nx,ny); let p = PRI.indexOf(t); if (p<0) p = 20; if (owner[bi]==='me') p -= 30; if (owner[bi]==='sale') p = 15;
+    if (p < bp){ bp = p; best = { t, x:nx, y:ny, bi, dx, dy }; } }
+  return best;
+}
+function squareKind(f){ if (!f) return null; if (owner[f.bi]==='me') return 'me'; if (owner[f.bi]==='sale') return 'sale'; return 'bfpcsok'.includes(f.t) ? f.t : null; }
+const MARK = { me:0x7B4DF2, sale:0xA6D95B, s:0xF2A93B, c:0xF2A93B, o:0x3D7BE0, k:0xF5C542, p:0x3FAE6A, f:0xFFFFFF, b:0x14B8C8 };
+const markFX = new THREE.Group(); scene.add(markFX);
+const markGeo = new THREE.CylinderGeometry(.27,.27,.05,18);
+function isCross(x,y){ return (roadAt(grid,x-1,y)||roadAt(grid,x+1,y)) && (roadAt(grid,x,y-1)||roadAt(grid,x,y+1)); }
+function rebuildMarkers(){
+  markFX.clear();
+  for (let y=0;y<G;y++) for (let x=0;x<G;x++){ if (grid[y][x]!=='=' || isCross(x,y)) continue; const f = frontage(x,y), k = squareKind(f); if (!k) continue;
+    const m = new THREE.Mesh(markGeo, M(MARK[k])); m.position.set(cx(x)+f.dx*.62, .04, cz(y)+f.dy*.62); markFX.add(m); }
+}
+rebuildMarkers();
+
+// ================= traffic (ambient Città life)
+let roadCells = [];
+function roads(){ roadCells = []; for (let y=0;y<G;y++) for (let x=0;x<G;x++) if (grid[y][x]==='=') roadCells.push([x,y]); }
+roads();
+function bfs(a, b){ const key=(x,y)=>y*G+x, prev=new Map([[key(...a),-1]]), q=[a]; let qi=0;
+  while (qi<q.length){ const [x,y]=q[qi++]; if (x===b[0]&&y===b[1]){ const p=[]; let k=key(x,y); while(k!==-1){ p.push([k%G,Math.floor(k/G)]); k=prev.get(k);} return p.reverse(); }
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const nx=x+dx, ny=y+dy; if (!roadAt(grid,nx,ny)) continue; const k=key(nx,ny); if (prev.has(k)) continue; prev.set(k,key(x,y)); q.push([nx,ny]); } } return null; }
+const roadNb = (x,y) => { for (const [dx,dy] of [[0,1],[1,0],[0,-1],[-1,0]]) if (roadAt(grid,x+dx,y+dy)) return [x+dx,y+dy]; return null; };
+function lanePts(path, off){ const pts = []; for (let i=0;i<path.length;i++){ const a = path[Math.max(0,i-1)], b = path[Math.min(path.length-1,i+1)]; let dx = b[0]-a[0], dy = b[1]-a[1]; const L = Math.hypot(dx,dy)||1; dx/=L; dy/=L; pts.push([cx(path[i][0]) - dy*off, cz(path[i][1]) + dx*off]); } return pts; }
+const CAR_COLS = [0xE5533D,0xF2F4F7,0x2F80ED,0xF5C542,0x1B2230,0x3FAE6A,0xB8784A,0x9AA4B5];
+function makeCar(col){ const g = new THREE.Group(); const body = new THREE.Mesh(new THREE.BoxGeometry(.9,.26,.46), M(col)); body.position.y = .2; const cab = new THREE.Mesh(new THREE.BoxGeometry(.48,.2,.4), M(0xCFE0EE)); cab.position.set(-.05,.43,0); g.add(body,cab); body.castShadow = true; return g; }
+function makePed(col){ const g = new THREE.Group(); const b = new THREE.Mesh(new THREE.CylinderGeometry(.09,.11,.36,8), M(col)); b.position.y = .32; const h = new THREE.Mesh(new THREE.SphereGeometry(.09,8,6), M(0xF1C7A5)); h.position.y = .58; g.add(b,h); return g; }
+function makeBus(){ const g = new THREE.Group(); const body = new THREE.Mesh(new THREE.BoxGeometry(1.7,.6,.6), M(0x14B8C8)); body.position.y = .42; const win = new THREE.Mesh(new THREE.BoxGeometry(1.5,.18,.62), M(0xDDF3F6)); win.position.y = .55; const roof = new THREE.Mesh(new THREE.BoxGeometry(1.7,.06,.6), M(0xF2F4F7)); roof.position.y = .75; g.add(body,win,roof); body.castShadow = true; return g; }
+const traffic = new THREE.Group(); scene.add(traffic);
+let cars = [], peds = [], buses = [];
+const R0 = rng(99);
+function newCarTrip(c){ for (let t=0;t<6;t++){ const a = c.at || roadCells[Math.floor(R0()*roadCells.length)], b = roadCells[Math.floor(R0()*roadCells.length)]; const p = bfs(a,b); if (p && p.length > 6){ c.pts = lanePts(p, .5); c.t = 0; c.at = b; return; } } }
+function homes(){ const a=[]; for (let y=0;y<G;y++) for (let x=0;x<G;x++) if ('ha'.includes(grid[y][x])) a.push([x,y]); return a; }
+function dests(){ const a=[]; for (let y=0;y<G;y++) for (let x=0;x<G;x++) if (DEST.includes(grid[y][x])) a.push([x,y]); return a; }
+let H = homes(), D = dests();
+const PED_COLS = [0xE5533D,0x2F80ED,0xF5C542,0x3FAE6A,0x7B4DF2,0xF06A4F,0x1B2230];
+function newPedTrip(p){ for (let t=0;t<6;t++){ const h = H[Math.floor(R0()*H.length)], d = D[Math.floor(R0()*D.length)]; const a = roadNb(...h), b = roadNb(...d); if (!a||!b) continue; const path = bfs(a,b); if (!path || path.length < 3) continue;
+    const side = R0()<.5 ? .84 : -.84; p.pts = [[cx(h[0]),cz(h[1])], ...lanePts(path, side), [cx(d[0]),cz(d[1])]]; p.dest = d; p.t = 0; return; } }
+function busStopsOnRoute(){ const s = new Set(); ROUTE_CELLS.forEach(([x,y],i) => { for (const [dx,dy] of [[0,1],[1,0],[0,-1],[-1,0]]){ const nx=x+dx, ny=y+dy; if (nx>=0&&ny>=0&&nx<G&&ny<G&&grid[ny][nx]==='b') s.add(i); } }); return s; }
+let routeStops = busStopsOnRoute();
+function place(obj, pts, t, y=0){ if (!pts || pts.length < 2) return; const i = Math.min(pts.length-2, Math.floor(t)), f = t - i, a = pts[i], b = pts[i+1]; obj.position.set(a[0]+(b[0]-a[0])*f, y, a[1]+(b[1]-a[1])*f); const dx = b[0]-a[0], dz = b[1]-a[1]; if (dx||dz) obj.rotation.y = -Math.atan2(dz, dx); }
+
+// ================= game state
+const S = { coins: 500, rolls: 20, mult: 1, nextRegen: 0, busy: false, stamps: new Set(), visitsToday: 0, incomeToday: 0, riders: 0, happy: .5, board: new Array(25).fill(0),
+  prog: { stamps:0, bus:0, duel:0, pick:0 }, claimed: {} };
+try { const s = JSON.parse(localStorage.getItem('giro-v1')||'null'); if (s){ if (typeof s.coins==='number') S.coins = s.coins; if (typeof s.rolls==='number') S.rolls = s.rolls; } } catch(e){}
+const save = () => { try { localStorage.setItem('giro-v1', JSON.stringify({ coins: Math.floor(S.coins), rolls: S.rolls })); } catch(e){} };
+const REGEN = 20000, CAP = 20;
+S.nextRegen = performance.now() + REGEN;
+
+// ambient spawn
+function spawnAmbient(){
+  for (let i=0;i<22;i++){ const m = makeCar(CAR_COLS[i%CAR_COLS.length]); traffic.add(m); const c = { m, sp: 2.2 + R0()*1.4 }; newCarTrip(c); c.t = R0()*(c.pts.length-1); cars.push(c); }
+  for (let i=0;i<60;i++){ const m = makePed(PED_COLS[i%PED_COLS.length]); traffic.add(m); const p = { m, sp: .9 + R0()*.5 }; newPedTrip(p); p.t = R0()*(p.pts.length-1); peds.push(p); }
+  const pts = lanePts(ROUTE_CELLS.concat([ROUTE_CELLS[0]]), .5); [0, Math.floor(ROUTE_CELLS.length/2)].forEach(st => { const m = makeBus(); traffic.add(m); buses.push({ m, pts, t: st, wait: 0, lastStop: -1 }); });
+}
+spawnAmbient();
+
+// pawns
+function makePawn(col, scale=1){ const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(.42,.5,.18,24), M(col)); base.position.y = .09;
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.16,.36,.8,20), M(col)); body.position.y = .58;
+  const collar = new THREE.Mesh(new THREE.CylinderGeometry(.26,.26,.08,20), M(col)); collar.position.y = .98;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.26,20,14), M(col)); head.position.y = 1.22;
+  g.add(base, body, collar, head); g.scale.setScalar(scale); sh(g); return g; }
+const pawnLayer = new THREE.Group(); scene.add(pawnLayer);
+const P = { x:12, y:14, dx:1, dy:0 };
+const pawn = makePawn(0x7B4DF2, 1.35); pawnLayer.add(pawn);
+const ring = new THREE.Mesh(new THREE.RingGeometry(.75,.95,32), new THREE.MeshBasicMaterial({ color:0x7B4DF2, transparent:true, opacity:.8, side:THREE.DoubleSide })); ring.rotation.x = -Math.PI/2; ring.position.y = .05; pawn.add(ring);
+const youTag = textSprite(['YOU'], '#7B4DF2', '#FFFFFF', 160); youTag.scale.multiplyScalar(.6); youTag.position.y = 2.4; pawn.add(youTag);
+pawn.position.set(cx(P.x), 0, cz(P.y));
+const GHOSTS = [[0,0xE5533D],[1,0x2F80ED],[2,0x3FAE6A],[5,0xF2A93B],[8,0xE58BA8],[21,0x1B2230]].map(([bi,col],i) => {
+  const m = makePawn(col, 1.05); const tag = textSprite([`${OWN[bi][0]} · ${OWN[bi][1]}`], 'rgba(255,255,255,.95)', '#1B2230', 380); tag.scale.multiplyScalar(.5); tag.position.y = 2.1; m.add(tag); pawnLayer.add(m);
+  const st = roadCells[(i*53+17) % roadCells.length]; const off = [[.35,.35],[-.35,.35],[.35,-.35],[-.35,-.35],[0,.45],[.45,0]][i];
+  const g = { bi, name: OWN[bi][0], city: OWN[bi][1], m, x: st[0], y: st[1], dx: 1, dy: 0, off, busy: false, next: performance.now() + 1500 + i*900 };
+  m.position.set(cx(g.x)+off[0], 0, cz(g.y)+off[1]); return g; });
+
+// coins on the street
+const coinFX = new THREE.Group(); scene.add(coinFX);
+const coinGeo = new THREE.CylinderGeometry(.32,.32,.08,20), coinMat = new THREE.MeshLambertMaterial({ color:0xF5C542, emissive:0x6A4A00, emissiveIntensity:.4 });
+const pickups = new Map();
+function dropCoin(){ for (let t=0;t<20;t++){ const [x,y] = roadCells[Math.floor(Math.random()*roadCells.length)]; const k = x+','+y; if (pickups.has(k) || isCross(x,y) || (x===P.x&&y===P.y)) continue;
+    const m = new THREE.Mesh(coinGeo, coinMat); m.rotation.x = Math.PI/2; m.position.set(cx(x), .75, cz(y)); coinFX.add(m); pickups.set(k, m); return; } }
+for (let i=0;i<26;i++) dropCoin();
+
+// ================= tweens + dice
+const tweens = [];
+function tween(dur, fn){ return new Promise(res => tweens.push({ t0: performance.now(), dur: dur*1000, fn, res })); }
+const wait = s => tween(s, () => {});
+function pipFace(n){ const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.fillStyle = '#FFFFFF'; x.fillRect(0,0,128,128); x.strokeStyle = '#D4DAE3'; x.lineWidth = 6; x.strokeRect(3,3,122,122);
+  const P2 = { 1:[[64,64]], 2:[[36,36],[92,92]], 3:[[34,34],[64,64],[94,94]], 4:[[36,36],[92,36],[36,92],[92,92]], 5:[[34,34],[94,34],[64,64],[34,94],[94,94]], 6:[[36,30],[92,30],[36,64],[92,64],[36,98],[92,98]] }[n];
+  x.fillStyle = n===1 ? '#7B4DF2' : '#1B2230'; P2.forEach(([a,b]) => { x.beginPath(); x.arc(a,b,n===1?16:12,0,7); x.fill(); }); return new THREE.CanvasTexture(c); }
+const die = new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5), [3,4,1,6,2,5].map(n => new THREE.MeshLambertMaterial({ map: pipFace(n) })));
+die.castShadow = true; die.visible = false; scene.add(die);
+const FINAL = { 1:[0,0,0], 6:[Math.PI,0,0], 2:[-Math.PI/2,0,0], 5:[Math.PI/2,0,0], 3:[0,0,Math.PI/2], 4:[0,0,-Math.PI/2] };
+async function throwDie(v){
+  die.visible = true; const [fx,fy,fz] = FINAL[v]; const sx = fx + Math.PI*2*(2+Math.floor(Math.random()*2)), sz = fz + Math.PI*2*2, sy = Math.random()*Math.PI*2;
+  const p0 = pawn.position.clone();
+  await tween(.85, k => { const e = 1-Math.pow(1-k,3); const ox = Math.cos(cam.theta)*1.8, oz = Math.sin(cam.theta)*1.8; die.position.set(p0.x + ox, 3.4 + Math.sin(k*Math.PI)*2.2 - k*1.6, p0.z + oz); die.rotation.set(sx*(1-e)+fx*e, sy*(1-e), sz*(1-e)+fz*e); });
+  die.rotation.set(fx,0,fz); await wait(.45);
+}
+
+// ================= HUD + UI
+let toastTimer = null;
+function toast(html, ms=2600){ const t = $('toast'); t.innerHTML = html; t.style.opacity = 1; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, ms); }
+const pops = [];
+function coinPop(x, z, txt, bg='#FFF6E0', fg='#7A5600'){ const s = textSprite([txt], bg, fg, 220); s.scale.multiplyScalar(.6); s.position.set(x, 2.4, z); scene.add(s); pops.push({ s, t0: performance.now() }); }
+function gain(n, at){ S.coins += n; if (at) coinPop(at[0], at[1], `+${Math.round(n)} ¢`); }
+function hud(){
+  $('hCoins').textContent = Math.floor(S.coins).toLocaleString('en-US'); $('hRolls').textContent = S.rolls; $('hStamps').textContent = `${S.stamps.size}/21`;
+  const m = S.mult; $('mult').innerHTML = `×${m}<small>BET</small>`; $('rollSub').textContent = S.rolls < m ? 'Out of rolls' : `uses ${m} roll${m>1?'s':''}`;
+  $('roll').disabled = S.busy || S.rolls < m || mode!=='play';
+}
+function regenText(now){ if (S.rolls >= CAP) return 'full'; const s = Math.max(0, Math.ceil((S.nextRegen-now)/1000)); return `+1 in 0:${String(s).padStart(2,'0')}`; }
+const MISSIONS = [
+  { id:'stamps', n:'Collect 3 new passport stamps', goal:3, reward:6 },
+  { id:'bus', n:'Ride a bus', goal:1, reward:5 },
+  { id:'duel', n:'Win a plaza duel', goal:1, reward:8 },
+  { id:'pick', n:'Pick up 5 coins on the street', goal:5, reward:5 },
+];
+function renderMissions(){
+  $('missions').innerHTML = MISSIONS.map(m => { const v = Math.min(m.goal, S.prog[m.id]), done = v>=m.goal, cl = S.claimed[m.id];
+    return `<div class="row"><span><b>${m.n}</b><small>${v}/${m.goal} · reward ${m.reward} rolls</small><div class="bar"><i style="width:${v/m.goal*100}%"></i></div></span>${cl ? '<span class="note">Claimed</span>' : `<button class="btn m" data-m="${m.id}" ${done?'':'disabled'}>Claim</button>`}</div>`; }).join('');
+  $('missions').querySelectorAll('button[data-m]').forEach(b => b.onclick = () => { const m = MISSIONS.find(q => q.id===b.dataset.m); S.claimed[m.id] = true; S.rolls += m.reward; toast(`Mission done: +${m.reward} rolls`); renderMissions(); hud(); save(); });
+  $('stamps').innerHTML = OWN.map((o,i) => owner[i]==='other' ? `<span class="${S.stamps.has(i)?'got':''}">${o[1]}</span>` : '').join('');
+}
+const SHOP = [
+  { id:'r5', n:'5 rolls', d:'Paid with coins', price:'300 ¢', coins:300, rolls:5 },
+  { id:'crate', n:'Mystery crate', d:'3 to 25 rolls · odds below', price:'150 ¢', coins:150, crate:true },
+  { id:'r25', n:'25 rolls', d:'Starter pack', price:'$0.99', rolls:25 },
+  { id:'r90', n:'90 rolls', d:'Best value', price:'$2.99', rolls:90 },
+  { id:'pass', n:'Giro pass', d:'+30 rolls a day for 30 days, golden pawn', price:'$4.99', rolls:30, gold:true },
+];
+function renderShop(){
+  $('shop').innerHTML = SHOP.map(s => `<div class="row"><span><b>${s.n}</b><small>${s.d}</small></span><button class="btn ${s.coins?'y':'m'}" data-s="${s.id}" ${s.coins && S.coins < s.coins ? 'disabled':''}>${s.price}</button></div>`).join('');
+  $('shop').querySelectorAll('button[data-s]').forEach(b => b.onclick = () => buyShop(b.dataset.s));
+}
+function buyShop(id){
+  const s = SHOP.find(q => q.id===id); if (s.coins){ if (S.coins < s.coins) return; S.coins -= s.coins; }
+  let n = s.rolls;
+  if (s.crate){ const r = Math.random(); n = r < .5 ? 3 : r < .8 ? 6 : r < .95 ? 12 : 25; toast(`Mystery crate: <b>${n} rolls</b>`); }
+  else if (s.coins) toast(`+${n} rolls`); else toast(`Demo purchase: +${n} rolls<small>Nothing was charged.</small>`);
+  if (s.gold){ pawn.traverse(m => { if (m.isMesh && m !== ring) m.material = M(0xE0A100); }); }
+  S.rolls += n; hud(); renderShop(); save();
+}
+function myCells(g=grid){ const a=[]; for (let y=0;y<G;y++) for (let x=0;x<G;x++) if (owner[blockOf(x,y)]==='me') a.push([x,y,g[y][x]]); return a; }
+function needs(g=grid){
+  const cells = myCells(g); let res=0, jobs=0, shop=0, green=0, stopsOn=0, stops=0;
+  cells.forEach(([x,y,t]) => { const K = KIND[t]; if (!K) return; res += K.res||0; jobs += K.jobs||0; shop += K.shop||0; green += K.green||0;
+    if (t==='b'){ stops++; for (const [dx,dy] of [[0,1],[1,0],[0,-1],[-1,0]]) if (onRoute.has((x+dx)+','+(y+dy))) { stopsOn++; break; } } });
+  const n = { res, jobs: Math.min(1, jobs/Math.max(1,res*.6)), shops: Math.min(1, shop/Math.max(1,res*1.2)), green: Math.min(1, green/Math.max(1,res)), transit: stopsOn ? 1 : (stops ? .35 : 0) };
+  n.happy = (n.jobs + n.shops + n.green + n.transit)/4; return n;
+}
+const NEEDTXT = { jobs:'Jobs', shops:'Shopping', green:'Green space', transit:'Bus service' };
+function renderBlock(){
+  const n = needs(); S.happy = n.happy;
+  $('kVis').textContent = S.visitsToday; $('kInc').textContent = Math.floor(S.incomeToday); $('kRes').textContent = n.res;
+  $('meters').innerHTML = Object.keys(NEEDTXT).map(k => { const v = n[k], col = v > .75 ? 'var(--good)' : v > .45 ? 'var(--warn)' : 'var(--bad)'; return `<div class="meter"><span>${NEEDTXT[k]}</span><div class="t"><i style="width:${Math.max(4,v*100)}%;background:${col}"></i></div><span>${Math.round(v*100)}%</span></div>`; }).join('');
+  $('tip').textContent = n.transit < 1 ? 'Happy blocks earn more per visit. Yours has no bus: buy the plot to the west and put a bus stop next to the bus line.' : `Happiness ${Math.round(n.happy*100)}%: each visit pays ×${(0.5+n.happy).toFixed(2)}. ${n.shops < .75 ? 'More shops or cafés would help.' : 'Keep adding places people want to stop.'}`;
+}
+function renderLots(){
+  $('lots').innerHTML = Object.keys(PRICE).map(bi => { bi = +bi; const dir = { 11:'West of you · on the bus line', 13:'East of you', 17:'South of you' }[bi]; const owned = owner[bi]==='me';
+    return `<div class="row"><span><b>${owned ? 'Your plot' : 'Plot ' + (bi+1)}</b><small>${dir}${owned ? '' : ' · ' + PRICE[bi] + ' coins'}</small></span>${owned ? '<span class="note">Owned</span>' : `<button class="btn m" data-bi="${bi}" ${S.coins < PRICE[bi] ? 'disabled' : ''}>Buy</button>`}</div>`; }).join('');
+  $('lots').querySelectorAll('button[data-bi]').forEach(b => b.onclick = () => buy(+b.dataset.bi));
+  const r = 1240 + S.riders; $('goal').innerHTML = `<span>City goal this week: 2,000 bus rides</span><div class="t"><i style="width:${Math.min(100,r/2000*100)}%"></i></div><span class="note">${r.toLocaleString('en-US')} / 2,000 · everyone gets 150 coins when it's reached</span>`;
+}
+function renderBoard(){
+  const rows = OWN.map((o,i) => ({ i, n: i===ME ? 'Your block' : (owner[i]==='other' ? `${o[0]} · ${o[1]}` : null), v: S.board[i] })).filter(r => r.n);
+  rows.sort((a,b)=>b.v-a.v); const top = rows.slice(0,6); if (!top.find(r=>r.i===ME)) top.push(rows.find(r=>r.i===ME));
+  $('lb').innerHTML = top.map(r => `<div class="${r.i===ME?'me':''}"><span>${rows.indexOf(r)+1}</span><span>${r.n}</span><span>${r.v}</span></div>`).join('');
+}
+const feed = [];
+function addFeed(html){ feed.unshift(html); feed.length = Math.min(feed.length, 5); $('feed').innerHTML = feed.map(f => `<div>${f}</div>`).join(''); }
+function renderAll(){ hud(); renderMissions(); renderShop(); renderBlock(); renderLots(); renderBoard(); }
+
+// ================= modal helpers
+function modal(html){ $('mbox').innerHTML = html; $('modal').hidden = false; }
+function closeModal(){ $('modal').hidden = true; }
+function lotModal(bi){ return new Promise(res => {
+  const can = S.coins >= PRICE[bi];
+  modal(`<h3>Plot ${bi+1} is for sale</h3><p>${PRICE[bi]} coins. You have ${Math.floor(S.coins)}.${bi===11 ? ' The bus line runs along it.' : ''}</p><div style="display:flex;gap:8px;justify-content:center"><button class="btn g" id="mNo">Not now</button><button class="btn m" id="mYes" ${can?'':'disabled'}>Buy plot</button></div>`);
+  $('mNo').onclick = () => { closeModal(); res(); }; $('mYes').onclick = () => { closeModal(); buy(bi); res(); }; }); }
+function duel(bi){ return new Promise(res => {
+  const o = OWN[bi], m = S.mult;
+  modal(`<h3>Plaza duel</h3><p>${o[0]} from ${o[1]} challenges you. Highest die wins ${40*m} coins. Losing costs nothing.</p><div class="dice2"><div class="me"><b id="dMe">?</b>You</div><span style="font:400 18px var(--display)">vs</span><div><b id="dThem">?</b>${o[0]}</div></div><button class="btn m" id="dGo">Roll</button>`);
+  $('dGo').onclick = async () => { $('dGo').disabled = true; let a, b;
+    for (let i=0;i<10;i++){ a = 1+Math.floor(Math.random()*6); b = 1+Math.floor(Math.random()*6); $('dMe').textContent = a; $('dThem').textContent = b; await wait(.07); }
+    if (window.__forceDuel){ a = 6; b = 2; $('dMe').textContent = a; $('dThem').textContent = b; }
+    const msg = a > b ? `You win ${40*m} coins.` : a === b ? `A tie: you both get ${10*m} coins.` : `${o[0]} wins this one.`;
+    if (a > b){ gain(40*m, [pawn.position.x, pawn.position.z]); S.prog.duel++; } else if (a === b) gain(10*m);
+    $('dGo').insertAdjacentHTML('beforebegin', `<p style="font-weight:800">${msg}</p>`); $('dGo').textContent = 'Continue'; $('dGo').disabled = false; $('dGo').onclick = () => { closeModal(); res(); }; };
+}); }
+
+// ================= movement
+function options(x,y,dx,dy){ const o = []; for (const d of [[1,0],[0,1],[-1,0],[0,-1]]){ if (d[0]===-dx && d[1]===-dy) continue; if (roadAt(grid,x+d[0],y+d[1])) o.push(d); } if (!o.length && roadAt(grid,x-dx,y-dy)) o.push([-dx,-dy]); return o; }
+function whereTo(x,y,d){ let tx = x, ty = y; for (let i=0;i<5;i++){ if (!roadAt(grid,tx+d[0],ty+d[1])) break; tx += d[0]; ty += d[1]; }
+  const bi = blockOf(Math.max(0,Math.min(G-1,tx+d[0]*2)), Math.max(0,Math.min(G-1,ty+d[1]*2))); return owner[bi]==='me' ? 'Your block' : owner[bi]==='sale' ? `Plot ${bi+1} (for sale)` : `${OWN[bi][0]} · ${OWN[bi][1]}${S.stamps.has(bi) ? '' : ' · new stamp'}`; }
+const FORKCOL = ['#E5533D','#1F9D60','#2F80ED'];
+const arrowFX = new THREE.Group(); scene.add(arrowFX);
+let forkResolve = null;
+function askFork(opts){ return new Promise(res => {
+  forkResolve = (i) => { forkResolve = null; arrowFX.clear(); $('fork').hidden = true; $('dock').hidden = false; stage.classList.remove('forking'); res(opts[i]); };
+  $('dock').hidden = true; $('fork').hidden = false; stage.classList.add('forking');
+  $('forkOpts').innerHTML = opts.map((d,i) => `<button data-i="${i}"><i style="background:${FORKCOL[i]}">${'ABC'[i]}</i>${whereTo(P.x,P.y,d)}</button>`).join('');
+  $('forkOpts').querySelectorAll('button').forEach(b => b.onclick = () => forkResolve && forkResolve(+b.dataset.i));
+  opts.forEach((d,i) => { const a = new THREE.Mesh(new THREE.ConeGeometry(.42,.9,16), new THREE.MeshBasicMaterial({ color: FORKCOL[i] }));
+    a.rotation.z = -Math.PI/2; const holder = new THREE.Group(); holder.add(a); holder.position.set(cx(P.x)+d[0]*1.25, .9, cz(P.y)+d[1]*1.25); holder.rotation.y = -Math.atan2(d[1], d[0]); a.userData.fork = i; arrowFX.add(holder); });
+}); }
+async function hopPawn(nx, ny, dur=.22){ const x0 = pawn.position.x, z0 = pawn.position.z; await tween(dur, k => pawn.position.set(lerp(x0,cx(nx),k), Math.sin(k*Math.PI)*.75, lerp(z0,cz(ny),k))); }
+function onEnter(){
+  const k = P.x+','+P.y; if (pickups.has(k)){ const m = pickups.get(k); coinFX.remove(m); pickups.delete(k); gain(5*S.mult, [cx(P.x), cz(P.y)]); S.prog.pick++; dropCoin(); }
+  const bi = blockOf(P.x,P.y); if (owner[bi]==='other' && !S.stamps.has(bi)){ S.stamps.add(bi); S.prog.stamps++; gain(10*S.mult); toast(`New stamp: ${OWN[bi][1]}<small>${OWN[bi][0]}'s block · +${10*S.mult} coins</small>`, 1800); }
+}
+async function walk(n){
+  for (let i=0;i<n;i++){
+    const opts = options(P.x,P.y,P.dx,P.dy); if (!opts.length) break;
+    const d = opts.length > 1 ? await askFork(opts) : opts[0];
+    const nx = P.x+d[0], ny = P.y+d[1]; await hopPawn(nx, ny); P.x = nx; P.y = ny; P.dx = d[0]; P.dy = d[1]; onEnter(); hud();
+  }
+}
+async function busRide(){
+  const i = routeIndex.get(P.x+','+P.y); if (i==null){ gain(2*S.mult); toast('Bus stop, but no line here yet. +2 coins'); return; }
+  let j = -1; for (let k=1;k<ROUTE_CELLS.length;k++){ const q = (i+k)%ROUTE_CELLS.length; if (routeStops.has(q)){ j = q; break; } }
+  if (j<0 || j===i){ toast('This is the only stop on the line.'); return; }
+  const bus = makeBus(); bus.position.copy(pawn.position); pawnLayer.add(bus);
+  toast('All aboard: riding to the next stop', 2000); S.prog.bus++; S.riders++;
+  let k = i; while (k !== j){ const n = (k+1)%ROUTE_CELLS.length; const [ax,ay] = ROUTE_CELLS[k], [bx,by] = ROUTE_CELLS[n];
+    bus.rotation.y = -Math.atan2(by-ay, bx-ax);
+    await tween(.09, t => { const px = lerp(cx(ax),cx(bx),t), pz = lerp(cz(ay),cz(by),t); bus.position.set(px,0,pz); pawn.position.set(px,.8,pz); });
+    P.x = bx; P.y = by; P.dx = bx-ax; P.dy = by-ay; onEnter(); k = n; }
+  pawnLayer.remove(bus); await tween(.2, t => pawn.position.y = .8*(1-t));
+  const f = frontage(P.x,P.y); toast(`You got off next to ${owner[f.bi]==='me' ? 'your block' : OWN[f.bi][0] + "'s block in " + OWN[f.bi][1]}.`);
+}
+async function land(){
+  const f = frontage(P.x,P.y), m = S.mult, at = [pawn.position.x, pawn.position.z];
+  if (!f){ toast('A quiet corner. Nothing happens.'); return; }
+  const k = squareKind(f), o = OWN[f.bi];
+  if (k==='me'){ S.rolls += 1; coinPop(at[0], at[1], '+1 roll', '#EEE7FE', '#4A22B8'); toast('Home block: +1 roll<small>Switch to Build to add something here.</small>'); return; }
+  if (k==='sale'){ await lotModal(f.bi); return; }
+  S.board[f.bi]++;
+  switch (k){
+    case 's': gain(8*m, at); toast(`Shopping at ${o[0]}'s shop in ${o[1]}<small>+${8*m} coins</small>`); break;
+    case 'c': gain(8*m, at); toast(`Coffee at ${o[0]}'s café in ${o[1]}<small>+${8*m} coins</small>`); break;
+    case 'o': gain(15*m, at); toast(`Payday at ${o[0]}'s office<small>+${15*m} coins</small>`); break;
+    case 'k': gain(12*m, at); toast(`Tutoring at ${o[0]}'s school<small>+${12*m} coins</small>`); break;
+    case 'p': S.rolls += m; coinPop(at[0], at[1], `+${m} roll${m>1?'s':''}`, '#E3F5EC', '#11603A'); toast(`A walk in ${o[0]}'s park<small>Free roll: +${m}</small>`); break;
+    case 'f': await duel(f.bi); break;
+    case 'b': await busRide(); break;
+    default: gain(3*m, at); toast(`${o[0]}'s neighbours wave hello<small>+${3*m} coins</small>`);
+  }
+}
+async function roll(forced){
+  if (S.busy || mode!=='play') return; const m = S.mult; if (S.rolls < m){ toast('Out of rolls<small>A new one arrives every 20 seconds, or get more in the shop.</small>'); return; }
+  S.rolls -= m; S.busy = true; cam.follow = true; setCamBtn('cFollow'); hud();
+  const v = forced || (1+Math.floor(Math.random()*6)); await throwDie(v);
+  const rb = $('rolled'); rb.textContent = v; rb.style.opacity = 1; setTimeout(() => rb.style.opacity = 0, 900);
+  die.visible = false; await walk(v); await land();
+  S.busy = false; if (S.rolls < S.mult) S.mult = 1; renderAll(); save();
+}
+$('roll').onclick = () => roll();
+$('mult').onclick = () => { const L = [1,2,3,5]; let i = L.indexOf(S.mult); for (let k=1;k<=4;k++){ const n = L[(i+k)%4]; if (n <= Math.max(1,S.rolls)){ S.mult = n; break; } } hud(); };
+
+// ghosts: other players' pawns rolling around, paying you when they stop at your block
+async function ghostTurn(g){ try { await ghostTurn2(g); } catch(err){ console.error(err); g.busy = false; g.next = performance.now() + 3000; } }
+async function ghostTurn2(g){
+  g.busy = true; const v = 1+Math.floor(Math.random()*6);
+  for (let i=0;i<v;i++){ const o = options(g.x,g.y,g.dx,g.dy); if (!o.length) break; const d = o[Math.floor(Math.random()*o.length)]; const nx = g.x+d[0], ny = g.y+d[1];
+    const x0 = g.m.position.x, z0 = g.m.position.z; await tween(.17, k => g.m.position.set(lerp(x0,cx(nx)+g.off[0],k), Math.sin(k*Math.PI)*.55, lerp(z0,cz(ny)+g.off[1],k)));
+    g.x = nx; g.y = ny; g.dx = d[0]; g.dy = d[1]; }
+  const f = frontage(g.x,g.y);
+  if (f){ S.board[f.bi]++;
+    if (owner[f.bi]==='me' && NOUN[f.t]){ const K = KIND[f.t]; const v2 = Math.round((K.value||1)*4*(0.5+S.happy)); S.coins += v2; S.incomeToday += v2; S.visitsToday++;
+      coinPop(cx(f.x), cz(f.y), `+${v2} ¢`); addFeed(`<b>${g.name}</b> from ${g.city} stopped at your ${NOUN[f.t]} <span class="c">+${v2} ¢</span>`);
+      if (!S.busy && $('modal').hidden) toast(`${g.name} from ${g.city} stopped at your ${NOUN[f.t]}<small>+${v2} coins for you</small>`, 2200); } }
+  g.busy = false; g.next = performance.now() + 2200 + Math.random()*3000;
+}
+
+// ================= land + build
+function buy(bi){
+  if (owner[bi]!=='sale' || S.coins < PRICE[bi]) return; S.coins -= PRICE[bi]; owner[bi] = 'me'; OWN[bi] = ['You','your city'];
+  for (let y=0;y<G;y++) for (let x=0;x<G;x++) if (blockOf(x,y)===bi) buildCell(x,y,grid);
+  rebuildPlots(); rebuildMarkers(); renderAll(); save();
+  toast(`You bought plot ${bi+1}<small>${bi===11 ? 'The bus line runs along it: add a bus stop in Build.' : 'Switch to Build to use it.'}</small>`, 3600);
+  if (mode==='build') draft = grid.map(r=>r.slice());
+}
+let mode = 'play', tool = 'h', paintedOnDown = false, spent = 0;
+const TOOLS = ['=','h','a','s','c','o','k','p','f','b','.'];
+$('tray').innerHTML = TOOLS.map(k => `<button class="tool" data-k="${k}" aria-pressed="${k===tool}"><i style="background:${KIND[k].col}"></i>${KIND[k].n}<small>${KIND[k].cost ? KIND[k].cost+'¢' : ''}</small></button>`).join('');
+$('tray').querySelectorAll('.tool').forEach(b => b.onclick = () => { tool = b.dataset.k; $('tray').querySelectorAll('.tool').forEach(x => x.setAttribute('aria-pressed', x.dataset.k===tool)); });
+function setMode(m){
+  if (m===mode) return; if (S.busy){ toast('Finish your move first.'); return; }
+  mode = m; $('mPlay').setAttribute('aria-pressed', m==='play'); $('mBuild').setAttribute('aria-pressed', m==='build'); $('tray').hidden = m!=='build'; $('dock').hidden = m!=='play'; traffic.visible = m==='play'; markFX.visible = m==='play';
+  if (m==='build'){ draft = grid.map(r=>r.slice()); spent = 0; goMine(); toast('Build mode. Tap a square on your purple land.<small>Drag to turn the camera.</small>', 3200); }
+  else { if (draft && JSON.stringify(draft)!==JSON.stringify(grid)) { buildAll(grid); toast('Unopened changes were set aside.'); } draft = null; spent = 0; cam.follow = true; setCamBtn('cFollow'); }
+  renderIssues(false); hud();
+}
+$('mPlay').onclick = () => setMode('play'); $('mBuild').onclick = () => setMode('build');
+function tryPaint(e){
+  const c = cellFromEvent(e); if (!c) return; const [x,y] = c; if (owner[blockOf(x,y)]!=='me') return;
+  paintedOnDown = true; if (draft[y][x]===tool) return;
+  const cost = KIND[tool].cost; if (S.coins - spent < cost){ toast(`Not enough coins for a ${KIND[tool].n.toLowerCase()} (${cost}).`); return; }
+  paintCell(x,y,tool);
+}
+function paintCell(x,y,t){ draft[y][x] = t; spent += KIND[t].cost; buildCell(x,y,draft); for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const nx=x+dx, ny=y+dy; if (nx>=0&&ny>=0&&nx<G&&ny<G && draft[ny][nx]==='=') buildCell(nx,ny,draft); } renderIssues(true); }
+function edgeIssues(g){ const out = []; owner.forEach((o,bi) => { if (o!=='me') return; const bx=(bi%NB)*B, by=Math.floor(bi/NB)*B;
+    const chk = (x,y,nx,ny) => { if (nx<0||ny<0||nx>=G||ny>=G) return; if (owner[blockOf(nx,ny)]==='me') return; if ((g[y][x]==='=') !== (g[ny][nx]==='=')) out.push({x,y}); };
+    for (let i=0;i<B;i++){ chk(bx+i,by,bx+i,by-1); chk(bx+i,by+B-1,bx+i,by+B); chk(bx,by+i,bx-1,by+i); chk(bx+B-1,by+i,bx+B,by+i); } }); return out; }
+function unreachable(g){ return myCells(g).filter(([x,y,t]) => t!=='=' && t!=='.' && !nearRoad(g,x,y)); }
+const issueFX = new THREE.Group(); scene.add(issueFX);
+function renderIssues(show){
+  issueFX.clear(); if (!show || !draft){ $('issues').innerHTML = ''; $('open').disabled = true; return; }
+  const e = edgeIssues(draft), u = unreachable(draft), out = [];
+  e.forEach(({x,y}) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(.5,.5,.12,16), new THREE.MeshBasicMaterial({ color:0xE5333B })); m.position.set(cx(x), .5, cz(y)); issueFX.add(m); });
+  u.forEach(([x,y]) => { const m = new THREE.Mesh(new THREE.TorusGeometry(.7,.06,6,24), new THREE.MeshBasicMaterial({ color:0xE5333B })); m.rotation.x = Math.PI/2; m.position.set(cx(x), .3, cz(y)); issueFX.add(m); });
+  if (e.length) out.push(`<div class="issue bad">${e.length} street${e.length>1?"s don't":" doesn't"} meet a neighbour's street at your border (red discs).</div>`);
+  if (u.length) out.push(`<div class="issue bad">${u.length} building${u.length>1?'s have':' has'} no street next to ${u.length>1?'them':'it'} (red rings).</div>`);
+  if (!out.length) out.push(`<div class="issue ok">All streets connect and every building is on a street.${spent ? ` This costs ${spent} coins.` : ''}</div>`);
+  $('issues').innerHTML = out.join(''); $('open').disabled = !!(e.length || u.length) || JSON.stringify(draft)===JSON.stringify(grid);
+}
+$('check').onclick = () => { if (mode!=='build') setMode('build'); renderIssues(true); };
+$('open').onclick = () => { if (!draft) return; grid = draft.map(r=>r.slice()); S.coins -= spent; spent = 0; roads(); H = homes(); D = dests(); routeStops = busStopsOnRoute();
+  buildAll(grid); rebuildMarkers(); for (const [k,m] of [...pickups]) { const [x,y] = k.split(',').map(Number); if (!roadAt(grid,x,y)){ coinFX.remove(m); pickups.delete(k); dropCoin(); } }
+  cars.forEach(c => { c.at = null; newCarTrip(c); }); peds.forEach(newPedTrip);
+  if (!roadAt(grid,P.x,P.y)){ const r = roadCells.reduce((b,c) => Math.hypot(c[0]-P.x,c[1]-P.y) < Math.hypot(b[0]-P.x,b[1]-P.y) ? c : b); P.x = r[0]; P.y = r[1]; pawn.position.set(cx(P.x),0,cz(P.y)); }
+  draft = null; renderIssues(false); renderAll(); save(); setMode('play'); toast('Your changes are open to the city.<small>New squares are on the board now.</small>'); };
+
+// ================= camera
+const cam = { theta: -.8, phi: .92, dist: 26, tx: 0, tz: 0, gx: 0, gz: 0, gd: 26, follow: true };
+function blockCenter(bi){ const bx=(bi%NB)*B, by=Math.floor(bi/NB)*B; return [cx(bx)+B*CS/2-CS/2, cz(by)+B*CS/2-CS/2]; }
+function setCamBtn(id){ ['cFollow','cMine','cCity'].forEach(b => $(b).setAttribute('aria-pressed', b===id)); }
+function goMine(){ const bis = owner.map((o,i)=>o==='me'?i:-1).filter(i=>i>=0); let x=0,z=0; bis.forEach(b => { const [a,c] = blockCenter(b); x+=a; z+=c; }); cam.follow = false; cam.gx = x/bis.length; cam.gz = z/bis.length; cam.gd = bis.length>1 ? 38 : 30; setCamBtn('cMine'); }
+$('cFollow').onclick = () => { cam.follow = true; cam.gd = stage.clientWidth < 600 ? 32 : 26; setCamBtn('cFollow'); };
+$('cMine').onclick = goMine;
+$('cCity').onclick = () => { cam.follow = false; cam.gx = 0; cam.gz = 0; cam.gd = stage.clientWidth < 600 ? 110 : 82; setCamBtn('cCity'); };
+let drag = null;
+canvas.addEventListener('pointerdown', e => { drag = { x:e.clientX, y:e.clientY, th:cam.theta, ph:cam.phi, moved:false, paint: mode==='build' && e.button===0 }; canvas.setPointerCapture(e.pointerId); if (drag.paint) tryPaint(e); });
+canvas.addEventListener('pointermove', e => { if (!drag) return; const dx = e.clientX-drag.x, dy = e.clientY-drag.y; if (Math.abs(dx)+Math.abs(dy) > 5) drag.moved = true;
+  if (drag.paint && paintedOnDown){ tryPaint(e); return; }
+  cam.theta = drag.th + dx*.006; cam.phi = Math.max(.35, Math.min(1.3, drag.ph - dy*.005)); });
+canvas.addEventListener('pointerup', e => { if (drag && !drag.moved && mode==='play') pick(e); drag = null; paintedOnDown = false; });
+canvas.addEventListener('wheel', e => { e.preventDefault(); cam.gd = Math.max(10, Math.min(130, cam.gd*(1+Math.sign(e.deltaY)*.12))); }, { passive:false });
+let pinch = null;
+canvas.addEventListener('touchstart', e => { if (e.touches.length===2){ const [a,b]=e.touches; pinch = { d:Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY), gd:cam.gd }; } }, { passive:true });
+canvas.addEventListener('touchmove', e => { if (pinch && e.touches.length===2){ const [a,b]=e.touches; cam.gd = Math.max(10, Math.min(130, pinch.gd*pinch.d/Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY))); } }, { passive:true });
+canvas.addEventListener('touchend', () => pinch = null);
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(), groundPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+function setMouse(e){ const r = canvas.getBoundingClientRect(); mouse.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1); ray.setFromCamera(mouse, camera); }
+function cellFromEvent(e){ setMouse(e); const p = new THREE.Vector3(); if (!ray.ray.intersectPlane(groundPlane, p)) return null; const x = Math.floor((p.x+HALF)/CS), y = Math.floor((p.z+HALF)/CS); return (x>=0&&y>=0&&x<G&&y<G) ? [x,y] : null; }
+function pick(e){ setMouse(e);
+  if (forkResolve){ const h = ray.intersectObjects(arrowFX.children, true).find(h => h.object.userData.fork != null); if (h) forkResolve(h.object.userData.fork); return; }
+  if (S.busy) return; const h = ray.intersectObjects(plotFX.children.filter(o=>o.isSprite)).find(h => h.object.userData.sale != null); if (h) lotModal(h.object.userData.sale); }
+
+// ================= day/night + loop
+const DAY = 180; let simT = 8/24*DAY;
+const SKY_D = new THREE.Color(0xBFD9EE), SKY_N = new THREE.Color(0x1B2540), SKY_S = new THREE.Color(0xF2B48A);
+function light(){
+  const h = (simT % DAY)/DAY*24; const dayAmt = Math.max(0, Math.min(1, (Math.sin((h-6)/24*Math.PI*2) + .25)*1.4));
+  const sunset = Math.max(0, 1 - Math.abs(h-18.5)/1.6) + Math.max(0, 1 - Math.abs(h-6.5)/1.4);
+  const sky = SKY_N.clone().lerp(SKY_D, dayAmt).lerp(SKY_S, Math.min(.55, sunset*.55)); scene.background = sky; scene.fog.color = sky;
+  hemi.intensity = .25 + dayAmt*.6; sun.intensity = .1 + dayAmt*.75; nightMats.forEach(m => m.emissiveIntensity = (1-dayAmt)*.9);
+  lampMat.color.setHex(dayAmt < .5 ? 0xFFE3A0 : 0xCFCFCF); lampGlow.forEach(m => m.opacity = (1-dayAmt)*.35);
+  $('hClock').textContent = `${String(Math.floor(h)).padStart(2,'0')}:${String(Math.floor((h%1)*60)).padStart(2,'0')}`;
+}
+function step(dt){
+  simT += dt; light();
+  cars.forEach(c => { c.t += dt*c.sp/CS*2; if (c.t >= c.pts.length-1) newCarTrip(c); place(c.m, c.pts, Math.min(c.t, c.pts.length-1.001)); });
+  peds.forEach(p => { p.t += dt*p.sp/CS*2; if (p.t >= p.pts.length-1){ const bi = blockOf(...p.dest); S.board[bi]++; if (owner[bi]==='me'){ const K = KIND[grid[p.dest[1]][p.dest[0]]] || {}; const v = (K.value||1)*.5*(0.5+S.happy); S.coins += v; S.incomeToday += v; S.visitsToday++; } newPedTrip(p); }
+    place(p.m, p.pts, Math.min(p.t, p.pts.length-1.001)); p.m.position.y = Math.abs(Math.sin(p.t*9))*.05; });
+  buses.forEach(b => { if (b.wait > 0){ b.wait -= dt; return; } b.t += dt*1.6/CS*2; if (b.t >= b.pts.length-1) b.t = 0; const i = Math.floor(b.t);
+    if (routeStops.has(i) && b.lastStop !== i){ b.lastStop = i; b.wait = 1.2; S.riders += 1; } place(b.m, b.pts, Math.min(b.t, b.pts.length-1.001)); });
+}
+function resize(){ const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w,h,false); camera.aspect = w/h; camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(stage); resize();
+let last = performance.now(), uiT = 0;
+function frame(now){
+  requestAnimationFrame(frame);
+  try { frameBody(now); } catch(err){ console.error(err); }
+}
+function frameBody(now){
+  const dt = Math.min(.05, (now-last)/1000); last = now;
+  for (let i=tweens.length-1;i>=0;i--){ const t = tweens[i]; let k = Math.min(1, (now-t.t0)/t.dur); try { t.fn(k); } catch(err){ console.error(err); k = 1; } if (k>=1){ tweens.splice(i,1); t.res(); } }
+  if (mode==='play'){ step(dt); GHOSTS.forEach(g => { if (!g.busy && now > g.next) ghostTurn(g); }); } else light();
+  if (S.rolls < CAP && now >= S.nextRegen){ S.rolls++; S.nextRegen = now + REGEN; hud(); } else if (S.rolls >= CAP) S.nextRegen = now + REGEN;
+  coinFX.children.forEach((m,i) => { m.rotation.z = now/400 + i; m.position.y = .75 + Math.sin(now/300+i)*.08; });
+  ring.material.opacity = .45 + Math.sin(now/250)*.3;
+  for (let i=pops.length-1;i>=0;i--){ const p = pops[i], k = (now-p.t0)/1200; p.s.position.y = 2.4 + k*1.6; p.s.material.opacity = 1-k; if (k>=1){ scene.remove(p.s); pops.splice(i,1); } }
+  issueFX.children.forEach(m => m.position.y = .5 + Math.sin(now/200)*.08);
+  arrowFX.children.forEach(a => a.position.y = .9 + Math.sin(now/180)*.12);
+  if (cam.follow){ cam.gx = pawn.position.x; cam.gz = pawn.position.z; }
+  cam.tx += (cam.gx-cam.tx)*.08; cam.tz += (cam.gz-cam.tz)*.08; cam.dist += (cam.gd-cam.dist)*.07;
+  camera.position.set(cam.tx + Math.cos(cam.theta)*Math.sin(cam.phi)*cam.dist, Math.cos(cam.phi)*cam.dist, cam.tz + Math.sin(cam.theta)*Math.sin(cam.phi)*cam.dist); camera.lookAt(cam.tx, 0, cam.tz);
+  sun.position.set(cam.tx+25, 45, cam.tz+15); sun.target.position.set(cam.tx, 0, cam.tz);
+  uiT += dt; if (uiT > .5){ uiT = 0; $('hRegen').textContent = regenText(now); renderBlock(); renderBoard(); renderLots(); hud(); }
+  renderer.render(scene, camera);
+}
+cam.gx = cam.tx = pawn.position.x; cam.gz = cam.tz = pawn.position.z; if (stage.clientWidth < 600){ cam.gd = cam.dist = 32; }
+for (let i=0;i<60;i++) step(1/20);
+S.visitsToday = 0; S.incomeToday = 0; S.coins = Math.max(S.coins, 500); S.riders = 0;
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => spriteRedraws.forEach(d => d()));
+renderAll(); requestAnimationFrame(frame);
+toast('You are the purple pawn, on your own block.<small>Tap ROLL to drive into the city.</small>', 4200);
+window.__giro = { die, roll, land, S, P, setMode, buy, chooseFork: i => forkResolve && forkResolve(i), get forking(){ return !!forkResolve; }, get grid(){ return grid; },
+  teleport(x,y,dx=1,dy=0){ P.x=x; P.y=y; P.dx=dx; P.dy=dy; pawn.position.set(cx(x),0,cz(y)); }, paint(x,y,t){ paintCell(x,y,t); }, frontage, squareKind, owner, routeStops, ROUTE_CELLS, closeModal };
+})();
+</script>

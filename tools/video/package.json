@@ -1,0 +1,11 @@
+{
+  "name": "giro-video-tools",
+  "private": true,
+  "description": "Renders the Giro 30s demo video from the prototype (headless Chromium + three.js).",
+  "dependencies": {
+    "three": "0.128.0",
+    "@fontsource/archivo": "^5.0.0",
+    "@fontsource/archivo-black": "^5.0.0",
+    "@fontsource/ibm-plex-mono": "^5.0.0"
+  }
+}
