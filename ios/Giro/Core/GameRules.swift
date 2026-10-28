@@ -3,15 +3,17 @@ import Foundation
 /// Tunable numbers in one place.
 public enum GameConfig {
     public static let startingCoins = 500
-    public static let startingRolls = 20
-    public static let rollCap = 20
-    /// Seconds per free roll. The web prototype used 20 s for testing; tune before release.
-    public static let rollRegenSeconds: TimeInterval = 60
+    public static let startingRolls = 30
+    /// Free rolls each day. At local midnight your rolls top back up to this number.
+    /// Rolls you buy or win stack above it and are never taken away.
+    public static let dailyRolls = 30
     public static let multipliers = [1, 2, 3, 5]
 
     public static let shopCoins = 8, officeCoins = 15, schoolCoins = 12, neighbourCoins = 3
     public static let duelWinCoins = 40, duelTieCoins = 10
     public static let stampCoins = 10, streetCoinCoins = 5
+    /// Sightseeing next to someone's monument.
+    public static let landmarkCoins = 25
 }
 
 /// What happens when your pawn stops on a square.
@@ -40,6 +42,7 @@ public enum Rules {
         case .park: return .freeRoll(rolls: m, block: f.block)
         case .plaza: return .duel(block: f.block)
         case .busStop: return .bus
+        case .landmark: return .coins(amount: GameConfig.landmarkCoins * m, place: f.tile, block: f.block)
         case nil: return .neighbours(amount: GameConfig.neighbourCoins * m, block: f.block)
         }
     }
@@ -92,7 +95,9 @@ public struct Needs: Equatable, Sendable {
             for y in o.y..<(o.y + CityMap.blockSize) {
                 for x in o.x..<(o.x + CityMap.blockSize) {
                     let t = map.tiles[y][x]
-                    res += t.residents; jobs += t.jobs; shop += t.shopping; green += t.green
+                    let k = map.levelFactor(at: Cell(x, y))
+                    func up(_ n: Int) -> Int { Int((Double(n) * k).rounded()) }
+                    res += up(t.residents); jobs += up(t.jobs); shop += up(t.shopping); green += up(t.green)
                     if t == .busStop {
                         stops += 1
                         if Dir.optionOrder.contains(where: { route.contains(Cell(x, y).moved($0)) }) { stopsOnLine += 1 }
@@ -140,7 +145,7 @@ public struct ShopItem: Identifiable, Sendable {
         ShopItem(id: "crate", title: "Mystery crate", detail: "3 to 25 rolls · odds below", price: .coins(150), rolls: 0, isCrate: true),
         ShopItem(id: "rolls25", title: "25 rolls", detail: "Starter pack", price: .money("$0.99"), rolls: 25),
         ShopItem(id: "rolls90", title: "90 rolls", detail: "Best value", price: .money("$2.99"), rolls: 90),
-        ShopItem(id: "pass", title: "Giro pass", detail: "+30 rolls a day for 30 days, golden pawn", price: .money("$4.99"), rolls: 30, isPass: true),
+        ShopItem(id: "pass", title: "Giro pass", detail: "+30 rolls a day for 30 days, golden skin", price: .money("$4.99"), rolls: 30, isPass: true),
     ]
 
     /// Published odds for the mystery crate (App Store guideline 3.1.1).
@@ -158,6 +163,36 @@ public struct ShopItem: Identifiable, Sendable {
 // MARK: - Player state (persisted)
 
 public struct PlayerState: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case coins, rolls, multiplier, position, heading, stamps, progress, claimed, goldenPawn
+        case lastRefill, visitsToday, earnedToday, busRides, ownedSkins, skinID, homeCity
+    }
+
+    /// Reads any older save: missing fields keep their defaults.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func get<T: Decodable>(_ k: CodingKeys, _ d: T) -> T { ((try? c.decodeIfPresent(T.self, forKey: k)) ?? nil) ?? d }
+        coins = get(.coins, GameConfig.startingCoins)
+        rolls = get(.rolls, GameConfig.startingRolls)
+        multiplier = get(.multiplier, 1)
+        position = get(.position, Cell(12, 14))
+        heading = get(.heading, .east)
+        stamps = get(.stamps, [])
+        progress = get(.progress, [:])
+        claimed = get(.claimed, [])
+        goldenPawn = get(.goldenPawn, false)
+        lastRefill = get(.lastRefill, Date())
+        visitsToday = get(.visitsToday, 0)
+        earnedToday = get(.earnedToday, 0)
+        busRides = get(.busRides, 0)
+        homeCity = get(.homeCity, nil)
+        ownedSkins = get(.ownedSkins, [Skin.classic.id])
+        skinID = get(.skinID, Skin.classic.id)
+        ownedSkins.insert(Skin.classic.id)
+        if goldenPawn { ownedSkins.insert(Skin.gold.id) }
+        if !ownedSkins.contains(skinID) { skinID = Skin.classic.id }
+    }
+
     public var coins: Int = GameConfig.startingCoins
     public var rolls: Int = GameConfig.startingRolls
     public var multiplier: Int = 1
@@ -167,28 +202,56 @@ public struct PlayerState: Codable, Equatable, Sendable {
     public var progress: [Mission.Kind: Int] = [:]
     public var claimed: Set<Mission.Kind> = []
     public var goldenPawn = false
-    public var lastRegen: Date = Date()
+    /// When the free rolls were last topped up.
+    public var lastRefill: Date = Date()
     public var visitsToday = 0
     public var earnedToday = 0
     public var busRides = 0
+    public var ownedSkins: Set<String> = [Skin.classic.id]
+    public var skinID: String = Skin.classic.id
+    /// The city you play for. Decides which monuments you can build.
+    public var homeCity: String?
 
     public init() {}
 
-    /// Add free rolls for time passed, up to the cap. Returns rolls added.
+    public var skin: Skin { Skin.named(skinID) }
+
+    /// Starts a new day if midnight has passed since the last refill: tops rolls up to the daily allowance
+    /// and resets the daily missions. Returns the free rolls added.
     @discardableResult
-    public mutating func regenerate(now: Date) -> Int {
-        guard rolls < GameConfig.rollCap else { lastRegen = now; return 0 }
-        let n = Int(now.timeIntervalSince(lastRegen) / GameConfig.rollRegenSeconds)
-        guard n > 0 else { return 0 }
-        let add = min(n, GameConfig.rollCap - rolls)
+    public mutating func refillIfNewDay(now: Date, calendar: Calendar = .current) -> Int {
+        guard now > lastRefill, !calendar.isDate(lastRefill, inSameDayAs: now) else { return 0 }
+        let add = max(0, GameConfig.dailyRolls - rolls)
         rolls += add
-        lastRegen = lastRegen.addingTimeInterval(Double(n) * GameConfig.rollRegenSeconds)
+        lastRefill = now
+        progress = [:]; claimed = []; visitsToday = 0; earnedToday = 0
         return add
     }
 
-    public func secondsToNextRoll(now: Date) -> Int? {
-        guard rolls < GameConfig.rollCap else { return nil }
-        return max(0, Int(ceil(GameConfig.rollRegenSeconds - now.timeIntervalSince(lastRegen))))
+    /// The moment the next free rolls arrive (the coming local midnight).
+    public func nextRefill(now: Date, calendar: Calendar = .current) -> Date {
+        let today = calendar.startOfDay(for: now)
+        return calendar.date(byAdding: .day, value: 1, to: today) ?? today.addingTimeInterval(86_400)
+    }
+
+    /// Seconds until the next refill, or nil while you still hold the full daily allowance.
+    public func secondsToRefill(now: Date, calendar: Calendar = .current) -> Int? {
+        guard rolls < GameConfig.dailyRolls else { return nil }
+        return max(0, Int(ceil(nextRefill(now: now, calendar: calendar).timeIntervalSince(now))))
+    }
+
+    public func owns(_ s: Skin) -> Bool { ownedSkins.contains(s.id) }
+
+    /// Buy a skin with coins. False if it is not for coins or you cannot afford it.
+    public mutating func buy(_ s: Skin) -> Bool {
+        guard !owns(s), case .coins(let price) = s.price, coins >= price else { return false }
+        coins -= price
+        ownedSkins.insert(s.id)
+        return true
+    }
+
+    public mutating func equip(_ s: Skin) {
+        if owns(s) { skinID = s.id }
     }
 
     /// Spend rolls for one throw. False if there are not enough.

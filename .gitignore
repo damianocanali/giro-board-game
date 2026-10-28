@@ -12,3 +12,6 @@ DerivedData/
 .build/
 .swiftpm/
 ios/Package.resolved
+
+# The app ships its sound effects as WAV files
+!ios/Giro/Resources/*.wav

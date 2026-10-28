@@ -9,6 +9,17 @@ struct Toast: Identifiable, Equatable {
     var detail: String?
 }
 
+/// A new passport stamp, shown as a little ceremony.
+struct StampEvent: Identifiable, Equatable {
+    let id = UUID()
+    var city: String
+    var owner: String
+    var coins: Int
+    /// How many stamps you have now, counting this one.
+    var number: Int
+    var date = Date()
+}
+
 struct ForkChoice: Identifiable, Equatable {
     var id: Int
     var dir: Dir
@@ -40,6 +51,10 @@ struct Ghost: Identifiable {
 private struct SaveData: Codable {
     var player: PlayerState
     var ownership: [Ownership]
+    /// What you built: each of your blocks as rows of tile characters. Optional so older saves still load.
+    var myTiles: [Int: [String]]?
+    /// Upgrade levels of your buildings, keyed "x,y".
+    var myLevels: [String: Int]?
 }
 
 /// Owns the game state and runs turns. The 3D scene is driven through `scene`.
@@ -60,7 +75,15 @@ final class GameModel {
     var feed: [String] = []
 
     var showShop = false
+    /// The title menu shown at launch.
+    var showMenu = !ProcessInfo.processInfo.arguments.contains { ["-giroBuildDemo", "-giroRollDemo", "-giroMonumentDemo", "-giroStampDemo"].contains($0) }
+    var hasSave: Bool { UserDefaults.standard.data(forKey: Self.saveKey) != nil }
     var showMissions = false
+
+    /// Non-nil while you are in build mode.
+    var draft: BuildDraft?
+    var buildTool: Tile = .house
+    var isBuilding: Bool { draft != nil }
 
     @ObservationIgnored weak var scene: CityScene?
     @ObservationIgnored private var forkContinuation: CheckedContinuation<Int, Never>?
@@ -85,14 +108,33 @@ final class GameModel {
             return Ghost(id: i, block: s.0, name: map.owners[s.0].name, city: map.owners[s.0].city, color: s.1,
                          cell: start, heading: .east, nextTurn: Date().addingTimeInterval(1.5 + Double(i) * 0.9))
         }
-        for _ in 0..<26 { dropCoin() }
+        for _ in 0..<14 { dropCoin() }
+        music.isOn = musicOn
+        sfx.isOn = soundOn
+        #if DEBUG
+        // `-giroSkin <id>` wears that skin, `-giroShowSkins YES` opens the skin picker (for screenshots).
+        if let id = UserDefaults.standard.string(forKey: "giroSkin") {
+            player.ownedSkins.insert(id); player.skinID = Skin.named(id).id
+        }
+        showSkins = UserDefaults.standard.bool(forKey: "giroShowSkins")
+        #endif
     }
 
     // MARK: Lifecycle
 
+    /// Leave the title menu and start playing.
+    func play() {
+        showMenu = false
+        scene?.setShowcase(false)
+        start()
+    }
+
     func start() {
-        guard ticker == nil else { return }
-        player.regenerate(now: Date())
+        guard ticker == nil, !showMenu else { return }
+        if player.refillIfNewDay(now: Date()) > 0 { save() }
+        #if DEBUG
+        runBuildDemoIfRequested()
+        #endif
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
@@ -102,9 +144,56 @@ final class GameModel {
         showToast("You're the yellow pawn, on your own block.", "Tap ROLL to drive into the city.", seconds: 4)
     }
 
+    #if DEBUG
+    /// Launch flags for screenshots and manual checks: `-giroRollDemo` rolls a 5, `-giroBuildDemo` opens build mode with a few
+    /// changes painted, `-giroMonumentDemo` builds two New York monuments and upgrades a shop, `-giroStampDemo` shows a new stamp.
+    func runBuildDemoIfRequested() {
+        if ProcessInfo.processInfo.arguments.contains("-giroRollDemo") {
+            Task { try? await Task.sleep(for: .seconds(1.5)); await roll(forced: 5) }
+            return
+        }
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-giroStampDemo") {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                stampEvent = StampEvent(city: "Roma", owner: "Giulia", coins: 10, number: player.stamps.count + 1)
+            }
+            return
+        }
+        if args.contains("-giroMonumentDemo") {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                player.coins = max(player.coins, 6000)
+                if player.homeCity == nil { chooseCity("New York") }
+                enterBuild()
+                buildTool = .liberty; paint(Cell(15, 13))
+                buildTool = .empireState; paint(Cell(12, 15))
+                try? await Task.sleep(for: .seconds(1))
+                openToCity()
+                try? await Task.sleep(for: .seconds(4))
+                enterBuild()
+                isUpgrading = true
+                paint(Cell(17, 13)); paint(Cell(17, 13)); paint(Cell(16, 13))
+            }
+            return
+        }
+        guard args.contains("-giroBuildDemo") else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            enterBuild()
+            buildTool = .cafe; paint(Cell(12, 12))
+            buildTool = .road; paint(Cell(17, 17))
+            buildTool = .shop; paint(Cell(12, 17))
+        }
+    }
+    #endif
+
     private func tick() {
         now = Date()
-        if player.regenerate(now: now) > 0 { save() }
+        if player.refillIfNewDay(now: now) > 0 {
+            save()
+            showToast("A new day in the city", "Your \(GameConfig.dailyRolls) free rolls are back.", seconds: 4)
+        }
         for g in ghosts where !g.busy && now >= g.nextTurn {
             Task { await ghostTurn(g.id) }
         }
@@ -117,13 +206,14 @@ final class GameModel {
     func roll(forced: Int? = nil) async {
         guard !isBusy, let scene else { return }
         guard player.spendRoll() else {
-            showToast("Out of rolls", "A free roll arrives every \(Int(GameConfig.rollRegenSeconds)) seconds, or get more in the shop.")
+            showToast("Out of rolls for today", "New free rolls in \(Self.clock(player.secondsToRefill(now: Date()) ?? 0)). Missions and the shop give more.")
             return
         }
         isBusy = true
         haptic.impactOccurred()
         let v = forced ?? Int.random(in: 1...6)
         scene.followPawn = true
+        sfx.play(.dice, volume: 0.6)
         await scene.throwDie(showing: v)
         showRolled(v)
         for _ in 0..<v {
@@ -188,7 +278,8 @@ final class GameModel {
             player.stamps.insert(bi)
             player.advance(.stamps)
             gain(GameConfig.stampCoins * m, at: nil)
-            showToast("New stamp: \(map.owners[bi].city)", "\(map.owners[bi].name)'s block · +\(GameConfig.stampCoins * m) coins", seconds: 1.8)
+            let e = StampEvent(city: map.owners[bi].city, owner: map.owners[bi].name, coins: GameConfig.stampCoins * m, number: player.stamps.count)
+            if stampEvent == nil { stampEvent = e } else { stampQueue.append(e) }
         }
     }
 
@@ -206,7 +297,7 @@ final class GameModel {
         case .coins(let amount, let place, let b):
             gain(amount, at: c)
             let o = map.owners[b]
-            let what = place == .cafe ? "Coffee at \(o.name)'s café" : place == .office ? "Payday at \(o.name)'s office"
+            let what = place.isMonument ? "Sightseeing at the \(place.name)" : place == .cafe ? "Coffee at \(o.name)'s café" : place == .office ? "Payday at \(o.name)'s office"
                 : place == .school ? "Tutoring at \(o.name)'s school" : "Shopping at \(o.name)'s shop"
             showToast("\(what) in \(o.city)", "+\(amount) coins")
         case .freeRoll(let r, let b):
@@ -225,7 +316,21 @@ final class GameModel {
 
     private func gain(_ n: Int, at c: Cell?) {
         player.coins += n
-        if let c { scene?.pop(text: "+\(n) ¢", at: c, color: 0xE0A100) }
+        sfx.play(.coin, volume: n >= 20 ? 0.9 : 0.6)
+        if let c {
+            scene?.pop(text: "+\(n) ¢", at: c, color: 0xE0A100)
+            scene?.coinFountain(at: c, count: min(9, 3 + n / 10))
+        }
+    }
+
+    // MARK: Passport stamps
+
+    var stampEvent: StampEvent?
+    @ObservationIgnored private var stampQueue: [StampEvent] = []
+
+    /// Close the stamp ceremony and show the next one, if a bus ride collected several.
+    func dismissStamp() {
+        stampEvent = stampQueue.isEmpty ? nil : stampQueue.removeFirst()
     }
 
     // MARK: Bus
@@ -307,10 +412,204 @@ final class GameModel {
         guard map.ownership[b] == .forSale, let price = map.plotPrices[b], player.coins >= price else { return }
         player.coins -= price
         map.ownership[b] = .mine
-        map.owners[b] = BlockOwner(name: "You", city: "your city")
+        map.owners[b] = BlockOwner(name: "You", city: player.homeCity ?? "your city")
         needs = Needs.of(map)
-        scene?.rebuildBlock(b, in: map)
-        showToast("You bought plot \(b + 1)", b == 11 ? "The bus line runs along it." : nil, seconds: 3)
+        if var d = draft {
+            d.adopt(ownership: map.ownership, owners: map.owners)
+            draft = d
+            scene?.rebuildBlock(b, in: d.map)
+        } else {
+            scene?.rebuildBlock(b, in: map)
+        }
+        showToast("You bought plot \(b + 1)", b == 11 ? "The bus line runs along it: add a bus stop in Build." : "Tap the hammer to build on it.", seconds: 3)
+        save()
+    }
+
+    // MARK: Build mode
+
+    func enterBuild() {
+        guard !isBusy, draft == nil else {
+            if isBusy { showToast("Finish your move first.") }
+            return
+        }
+        draft = BuildDraft(base: map)
+        scene?.setBuildMode(true)
+        scene?.focusForBuilding()
+        showToast("Build mode", "Pick something below, then tap a square on your land.", seconds: 3.2)
+    }
+
+    /// Leave build mode. Changes you didn't open to the city are thrown away.
+    func leaveBuild() {
+        guard let d = draft else { return }
+        draft = nil
+        isUpgrading = false
+        if d.hasChanges {
+            scene?.showDraft(map, changed: d.changedCells)
+            showToast("Unopened changes were set aside.")
+        }
+        scene?.showIssues(nil)
+        scene?.setBuildMode(false)
+        scene?.focusOnPawn()
+    }
+
+    func discardDraft() {
+        guard let d = draft, d.hasChanges else { return }
+        draft = BuildDraft(base: map)
+        scene?.showDraft(map, changed: d.changedCells)
+        scene?.showIssues(nil)
+    }
+
+    func paint(_ c: Cell) {
+        if isUpgrading { upgrade(c); return }
+        guard var d = draft else { return }
+        let result = d.paint(c, buildTool, coins: player.coins, city: player.homeCity)
+        switch result {
+        case .painted:
+            draft = d
+            haptic.impactOccurred(intensity: 0.6)
+            scene?.showDraft(d.map, changed: [c])
+            scene?.showIssues(d.issues)
+        case .unchanged:
+            break
+        case .notYourLand:
+            if d.map.inBounds(c) {
+                let b = d.map.block(of: c)
+                showToast(d.map.ownership[b] == .forSale ? "Buy this plot to build here." : "That's \(d.map.owners[b].name)'s land.",
+                          "You can only build on your own blocks.", seconds: 2)
+            }
+        case .busLine:
+            showToast("The bus line runs on this street.", "Bus streets can't be built over.", seconds: 2)
+        case .tooExpensive(let cost):
+            showToast("Not enough coins for \(buildTool.isMonument ? "the" : "a") \(buildTool.noun)", "It costs \(cost). This draft already costs \(d.cost).", seconds: 2.4)
+        case .onlyOne:
+            showToast("You already have the \(buildTool.name).", "Each monument can be built once.", seconds: 2.4)
+        case .notYourCity:
+            showToast("The \(buildTool.name) belongs to another city.", seconds: 2.2)
+        }
+    }
+
+    /// Step back one change in the draft.
+    func undo() {
+        guard var d = draft, d.canUndo else { return }
+        let before = d.map
+        d.undo()
+        draft = d
+        let changed = (0..<CityMap.size).flatMap { y in (0..<CityMap.size).compactMap { x in before.tiles[y][x] != d.map.tiles[y][x] ? Cell(x, y) : nil } }
+        scene?.showDraft(d.map, changed: changed)
+        scene?.showIssues(d.issues.isEmpty ? nil : d.issues)
+    }
+
+    /// Take away only the things that can't stay, keeping the rest of the draft.
+    func removeProblems() {
+        guard var d = draft else { return }
+        let removed = d.removeProblems()
+        guard !removed.isEmpty else { return }
+        draft = d
+        scene?.showDraft(d.map, changed: removed)
+        scene?.showIssues(d.issues.isEmpty ? nil : d.issues)
+        haptic.impactOccurred()
+        showToast(d.issues.isEmpty ? "Fixed. Everything else stays." : "Fixed what I could.",
+                  "\(removed.count) square\(removed.count == 1 ? "" : "s") changed back or cleared.", seconds: 2.4)
+    }
+
+    // MARK: Upgrades
+
+    /// In build mode with the Upgrade tool, tapping your building raises it a level.
+    var isUpgrading = false
+
+    func upgrade(_ c: Cell) {
+        guard let d = draft else { return }
+        guard d.map.tiles[c.y][c.x] == d.base.tiles[c.y][c.x] else {
+            showToast("Open your changes first.", "You can upgrade buildings that are already in the city.", seconds: 2.2)
+            return
+        }
+        var coins = player.coins
+        switch map.upgrade(c, coins: &coins) {
+        case .upgraded(let level, let cost):
+            player.coins = coins
+            var nd = d
+            nd.adoptLevels(map.levels)
+            draft = nd
+            needs = Needs.of(map)
+            scene?.showDraft(nd.map, changed: [c])
+            scene?.popIn([c])
+            scene?.burst(at: c, colors: [0xF5B700, 0xFFE9A8, 0xFFFFFF], count: 18, height: 2)
+            sfx.play(.upgrade)
+            haptic.impactOccurred()
+            let t = map.tiles[c.y][c.x]
+            showToast("\(t.name) is now level \(level)", "Spent \(cost) coins. Visitors pay more here.", seconds: 2.4)
+            save()
+        case .maxed:
+            showToast("This \(map.tiles[c.y][c.x].noun) is at the top level.")
+        case .tooExpensive(let cost):
+            showToast("Upgrading costs \(cost) coins.", "You have \(player.coins).")
+        case .notYourBuilding:
+            if map.tile(c)?.isMonument == true { showToast("Monuments are already as grand as they get.") }
+            else { showToast("Tap one of your buildings to upgrade it.") }
+        }
+    }
+
+    // MARK: Home city
+
+    var showCityPicker = false
+
+    func chooseCity(_ city: String) {
+        player.homeCity = city
+        for b in map.myBlocks { map.owners[b].city = city }
+        showCityPicker = false
+        showToast("Welcome to \(city)", "Your city's monuments are in the build tray.", seconds: 2.6)
+        save()
+    }
+
+    /// Happiness of your land if the draft were opened.
+    var draftNeeds: Needs? { draft.map { Needs.of($0.map) } }
+
+    func openToCity() {
+        guard let d = draft, d.canOpen, player.coins >= d.cost else { return }
+        map.tiles = d.map.tiles
+        for c in d.changedCells { map.levels[c] = nil }
+        player.coins -= d.cost
+        needs = Needs.of(map)
+        draft = nil
+        isUpgrading = false
+
+        // Anything standing on a street that is now built over moves to the nearest street.
+        if !map.isRoad(player.position), let r = map.nearestRoad(to: player.position) {
+            player.position = r
+            player.heading = map.options(at: r, heading: .east).first ?? .east
+            scene?.placePawn(at: r, heading: player.heading)
+        }
+        for i in ghosts.indices where !map.isRoad(ghosts[i].cell) {
+            if let r = map.nearestRoad(to: ghosts[i].cell) {
+                ghosts[i].cell = r
+                scene?.placeGhost(ghosts[i].id, at: r)
+            }
+        }
+        for c in pickups where !map.isRoad(c) {
+            pickups.remove(c)
+            scene?.removeCoin(at: c)
+            dropCoin()
+        }
+        scene?.showDraft(map, changed: d.changedCells)
+        scene?.showIssues(nil)
+        scene?.setBuildMode(false)
+        let built = d.changedCells.filter { map.tiles[$0.y][$0.x].isBuilding }
+        scene?.popIn(built)
+        for c in built.prefix(4) { scene?.burst(at: c, count: 14) }
+        if let m = built.first(where: { map.tiles[$0.y][$0.x].isMonument }) {
+            let t = map.tiles[m.y][m.x]
+            scene?.burst(at: m, count: 40, height: 3)
+            sfx.play(.achievement)
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(3.1))
+                self?.showToast("You built the \(t.name)!", "Visitors pay \(t.visitValue)× here. Your block is happier.", seconds: 3.5)
+            }
+        } else {
+            sfx.play(.build)
+        }
+        scene?.focusOnPawn()
+        haptic.impactOccurred()
+        showToast("Your changes are open to the city.", d.cost > 0 ? "Spent \(d.cost) coins. New squares are on the board now." : "New squares are on the board now.", seconds: 3)
         save()
     }
 
@@ -330,12 +629,14 @@ final class GameModel {
             ghosts[i].heading = d
         }
         if let f = map.frontage(of: ghosts[i].cell), map.ownership[f.block] == .mine, f.tile.isVisitable {
-            let pay = max(1, Int((Double(f.tile.visitValue) * 4 * needs.visitMultiplier).rounded()))
+            let pay = max(1, Int((Double(f.tile.visitValue) * 4 * needs.visitMultiplier * map.levelFactor(at: f.cell)).rounded()))
             player.coins += pay
             player.earnedToday += pay
             player.visitsToday += 1
             let g = ghosts[i]
             scene.pop(text: "+\(pay) ¢", at: f.cell, color: 0xE0A100)
+            if !isBuilding { scene.coinFountain(at: f.cell, count: 3) }
+            sfx.play(.coin, volume: 0.35)
             feed.insert("\(g.name) from \(g.city) stopped at your \(f.tile.noun) +\(pay) ¢", at: 0)
             if feed.count > 6 { feed.removeLast() }
             if !isBusy { showToast("\(g.name) from \(g.city) stopped at your \(f.tile.noun)", "+\(pay) coins for you", seconds: 2.2) }
@@ -374,13 +675,63 @@ final class GameModel {
         } else {
             showToast("+\(n) rolls")
         }
-        if item.isPass { player.goldenPawn = true; scene?.setGoldenPawn(true) }
+        if item.isPass {
+            player.goldenPawn = true
+            player.ownedSkins.insert(Skin.gold.id)
+            equipSkin(Skin.gold)
+        }
         player.rolls += n
         save()
     }
 
+    // MARK: Skins
+
+    var showSkins = false
+
+    /// Buy a skin with coins, then wear it.
+    func buySkin(_ s: Skin) {
+        guard player.buy(s) else { return }
+        showToast("New look: \(s.name)")
+        equipSkin(s)
+    }
+
+    func equipSkin(_ s: Skin) {
+        player.equip(s)
+        scene?.applySkin(player.skin)
+        save()
+    }
+
+    // MARK: Music
+
+    @ObservationIgnored let sfx = SoundFX()
+    var soundOn: Bool = UserDefaults.standard.object(forKey: "giro.sfx") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(soundOn, forKey: "giro.sfx")
+            sfx.isOn = soundOn
+        }
+    }
+
+    @ObservationIgnored let music = MusicPlayer()
+    var musicOn: Bool = UserDefaults.standard.object(forKey: "giro.music") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(musicOn, forKey: "giro.music")
+            music.isOn = musicOn
+        }
+    }
+
+    /// "h:mm:ss" for a countdown.
+    static func clock(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        return String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
+    }
+
     func claim(_ m: Mission) {
-        if player.claim(m) { showToast("Mission done: +\(m.rewardRolls) rolls"); save() }
+        if player.claim(m) {
+            sfx.play(.achievement)
+            scene?.burst(at: player.position, count: 30, height: 2)
+            showToast("Mission done: +\(m.rewardRolls) rolls")
+            save()
+        }
     }
 
     // MARK: Toasts
@@ -397,7 +748,15 @@ final class GameModel {
     // MARK: Persistence
 
     private func save() {
-        let d = SaveData(player: player, ownership: map.ownership)
+        var tiles: [Int: [String]] = [:]
+        for b in map.myBlocks {
+            let o = CityMap.blockOrigin(b)
+            tiles[b] = (o.y..<(o.y + CityMap.blockSize)).map { y in
+                String((o.x..<(o.x + CityMap.blockSize)).map { map.tiles[y][$0].rawValue })
+            }
+        }
+        let levels = Dictionary(uniqueKeysWithValues: map.levels.map { ("\($0.key.x),\($0.key.y)", $0.value) })
+        let d = SaveData(player: player, ownership: map.ownership, myTiles: tiles, myLevels: levels)
         if let data = try? JSONEncoder().encode(d) { UserDefaults.standard.set(data, forKey: Self.saveKey) }
     }
 
@@ -407,15 +766,27 @@ final class GameModel {
               d.ownership.count == map.ownership.count else { return }
         player = d.player
         map.ownership = d.ownership
-        for b in map.ownership.indices where map.ownership[b] == .mine { map.owners[b] = BlockOwner(name: "You", city: "your city") }
+        for b in map.ownership.indices where map.ownership[b] == .mine { map.owners[b] = BlockOwner(name: "You", city: player.homeCity ?? "your city") }
+        for (k, l) in d.myLevels ?? [:] {
+            let p = k.split(separator: ",").compactMap { Int($0) }
+            if p.count == 2, map.inBounds(Cell(p[0], p[1])), map.ownership(of: Cell(p[0], p[1])) == .mine { map.levels[Cell(p[0], p[1])] = min(Tile.maxLevel, l) }
+        }
+        for (b, rows) in d.myTiles ?? [:] where map.ownership.indices.contains(b) && map.ownership[b] == .mine && rows.count == CityMap.blockSize {
+            let o = CityMap.blockOrigin(b)
+            for (dy, row) in rows.enumerated() where row.count == CityMap.blockSize {
+                for (dx, ch) in row.enumerated() { if let t = Tile(rawValue: ch) { map.tiles[o.y + dy][o.x + dx] = t } }
+            }
+        }
         if !map.isRoad(player.position) { player.position = Cell(12, 14); player.heading = .east }
     }
 
     func resetProgress() {
         UserDefaults.standard.removeObject(forKey: Self.saveKey)
         player = PlayerState()
+        draft = nil
         map = CityMap.example()
         needs = Needs.of(map)
         scene?.rebuildAll(map: map, pawnAt: player.position)
+        scene?.applySkin(player.skin)
     }
 }

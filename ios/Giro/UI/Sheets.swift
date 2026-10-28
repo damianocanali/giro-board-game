@@ -119,7 +119,7 @@ struct MissionsSheet: View {
                 }
 
                 Section("What the squares do") {
-                    ForEach([CityMap.SquareKind.shop, .office, .school, .park, .plaza, .busStop, .home, .forSale], id: \.self) { k in
+                    ForEach([CityMap.SquareKind.shop, .park, .plaza, .busStop, .landmark, .home, .forSale], id: \.self) { k in
                         HStack(spacing: 10) {
                             RoundedRectangle(cornerRadius: 5).fill(Color(hex: k.tileColor)).frame(width: 22, height: 22)
                                 .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.line))
@@ -193,6 +193,104 @@ struct FlowLayout: Layout {
             s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(sz))
             x += sz.width + spacing
             rowH = max(rowH, sz.height)
+        }
+    }
+}
+
+struct SkinsSheet: View {
+    let model: GameModel
+    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(Skin.all) { s in SkinCard(model: model, skin: s) }
+                }
+                .padding(16)
+            }
+            .background(Theme.paper)
+            .navigationTitle("Skins")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { model.showSkins = false } } }
+        }
+        .tint(Theme.ink)
+    }
+}
+
+private struct SkinCard: View {
+    let model: GameModel
+    let skin: Skin
+
+    private var owned: Bool { model.player.owns(skin) }
+    private var wearing: Bool { model.player.skinID == skin.id }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 14) {
+                // Pawn: body and head
+                VStack(spacing: -4) {
+                    Circle().fill(Color(hex: skin.pawn)).frame(width: 26, height: 26)
+                    Capsule().fill(Color(hex: skin.pawn)).frame(width: 34, height: 40)
+                }
+                .overlay(alignment: .top) { hat.offset(y: -10) }
+                // Die showing five
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(hex: skin.die))
+                    .frame(width: 46, height: 46)
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line, lineWidth: 1))
+                    .overlay(pips)
+            }
+            .frame(height: 84)
+            Text(skin.name).font(Theme.body(16, .heavy)).foregroundStyle(Theme.ink)
+            action
+        }
+        .frame(maxWidth: .infinity)
+        .padding(14)
+        .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(wearing ? Theme.you : Theme.line, lineWidth: wearing ? 3 : 1))
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var action: some View {
+        if wearing {
+            Text("Wearing").font(Theme.body(13, .bold)).foregroundStyle(Theme.good).frame(minHeight: 32)
+        } else if owned {
+            Button("Wear") { model.equipSkin(skin) }.buttonStyle(CardButtonStyle())
+        } else {
+            switch skin.price {
+            case .coins(let n):
+                Button("\(n) ¢") { model.buySkin(skin) }
+                    .buttonStyle(CardButtonStyle())
+                    .disabled(model.player.coins < n)
+            case .pass:
+                Button("With Giro pass") { model.showSkins = false; model.showShop = true }
+                    .buttonStyle(CardButtonStyle())
+            case .free:
+                EmptyView()
+            }
+        }
+    }
+
+    private var pips: some View {
+        let c = Color(hex: skin.pips)
+        return ZStack {
+            ForEach(0..<4, id: \.self) { i in
+                Circle().fill(c).frame(width: 8, height: 8)
+                    .offset(x: i % 2 == 0 ? -12 : 12, y: i < 2 ? -12 : 12)
+            }
+            Circle().fill(c).frame(width: 8, height: 8)
+        }
+    }
+
+    @ViewBuilder private var hat: some View {
+        let c = Color(hex: skin.hatColor)
+        switch skin.hat {
+        case .none: EmptyView()
+        case .cap: Capsule().fill(c).frame(width: 30, height: 12)
+        case .crown: Image(systemName: "crown.fill").foregroundStyle(c).font(.system(size: 18))
+        case .topHat: Rectangle().fill(c).frame(width: 20, height: 16)
+        case .flower: Image(systemName: "camera.macro").foregroundStyle(c).font(.system(size: 14))
         }
     }
 }

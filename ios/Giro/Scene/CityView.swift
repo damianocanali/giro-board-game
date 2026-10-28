@@ -11,13 +11,15 @@ struct CityView: UIViewRepresentable {
     func makeUIView(context: Context) -> ARView {
         let scene = CityScene(map: model.map)
         scene.setup(map: model.map, pawnAt: model.player.position, heading: model.player.heading,
-                    golden: model.player.goldenPawn, pickups: model.pickups, ghosts: model.ghosts)
+                    skin: model.player.skin, pickups: model.pickups, ghosts: model.ghosts)
         scene.onTapFork = { [weak model] i in model?.pickFork(i) }
         scene.onTapSale = { [weak model] b in
             guard let model, !model.isBusy, model.saleOffer == nil else { return }
             Task { await model.offerSaleFromSign(b) }
         }
+        scene.onTapCell = { [weak model] c in model?.paint(c) }
         model.scene = scene
+        if model.showMenu { scene.setShowcase(true) }
         context.coordinator.scene = scene
 
         let view = scene.arView
@@ -33,7 +35,9 @@ struct CityView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject {
-        weak var scene: CityScene?
+        /// Strong on purpose: the coordinator lives as long as the view, and it is the scene's only owner
+        /// (GameModel holds it weakly). With a weak reference here the scene was freed right after creation.
+        var scene: CityScene?
         private var lastPan: CGPoint = .zero
         private var lastScale: CGFloat = 1
 

@@ -36,6 +36,37 @@ public enum Tile: Character, Codable, CaseIterable, Sendable {
     case plaza = "f"
     case busStop = "b"
     case empty = "."
+    // Monuments: one of each per player, only in their own city.
+    case liberty = "L", empireState = "E"
+    case colosseum = "C", stPeters = "D"
+    case eiffel = "F", arc = "A"
+    case bigBen = "B", londonEye = "O"
+    case tokyoTower = "T", pagoda = "G"
+    case pyramids = "P", sphinx = "X"
+
+    /// Cities you can call home, and the monuments each one can build.
+    public static let homeCities: [(city: String, monuments: [Tile])] = [
+        ("New York", [.liberty, .empireState]),
+        ("Roma", [.colosseum, .stPeters]),
+        ("Paris", [.eiffel, .arc]),
+        ("London", [.bigBen, .londonEye]),
+        ("Tokyo", [.tokyoTower, .pagoda]),
+        ("Cairo", [.pyramids, .sphinx]),
+    ]
+
+    /// The monuments a city can build. Brooklyn counts as New York.
+    public static func monuments(in city: String?) -> [Tile] {
+        let c = city == "Brooklyn" ? "New York" : city
+        return homeCities.first { $0.city == c }?.monuments ?? []
+    }
+
+    public var isMonument: Bool { Tile.homeCities.contains { $0.monuments.contains(self) } }
+
+    /// Highest level a building can be upgraded to.
+    public static let maxLevel = 3
+    public var canUpgrade: Bool { isBuilding && !isMonument }
+    /// Coins to go from `level - 1` to `level`.
+    public func upgradeCost(to level: Int) -> Int { cost * (level == 2 ? 3 : 6) }
 
     public var name: String {
         switch self {
@@ -49,11 +80,23 @@ public enum Tile: Character, Codable, CaseIterable, Sendable {
         case .park: "Park"
         case .plaza: "Plaza"
         case .busStop: "Bus stop"
-        case .empty: "Clear"
+        case .empty: "Remove"
+        case .liberty: "Statue of Liberty"
+        case .empireState: "Empire State Building"
+        case .colosseum: "Colosseum"
+        case .stPeters: "St Peter's Basilica"
+        case .eiffel: "Eiffel Tower"
+        case .arc: "Arc de Triomphe"
+        case .bigBen: "Big Ben"
+        case .londonEye: "London Eye"
+        case .tokyoTower: "Tokyo Tower"
+        case .pagoda: "Five-storey Pagoda"
+        case .pyramids: "Pyramids of Giza"
+        case .sphinx: "Great Sphinx"
         }
     }
     /// Lower-case noun used in sentences ("stopped at your café").
-    public var noun: String { name.lowercased() }
+    public var noun: String { isMonument ? name : name.lowercased() }
     public var cost: Int {
         switch self {
         case .road: 5
@@ -67,22 +110,25 @@ public enum Tile: Character, Codable, CaseIterable, Sendable {
         case .plaza: 25
         case .busStop: 30
         case .empty: 0
+        case .liberty, .eiffel, .colosseum, .pyramids: 1500
+        case .empireState, .bigBen, .tokyoTower: 1300
+        case .stPeters, .arc, .londonEye, .pagoda, .sphinx: 1000
         }
     }
     public var residents: Int { switch self { case .house: 4; case .apartments: 12; default: 0 } }
-    public var jobs: Int { switch self { case .shop: 3; case .cafe: 2; case .office: 15; case .school: 4; default: 0 } }
-    public var shopping: Int { switch self { case .shop: 10; case .cafe: 8; default: 0 } }
-    public var green: Int { switch self { case .park: 12; case .plaza: 6; default: 0 } }
+    public var jobs: Int { switch self { case .shop: 3; case .cafe: 2; case .office: 15; case .school: 4; default: isMonument ? 8 : 0 } }
+    public var shopping: Int { switch self { case .shop: 10; case .cafe: 8; default: isMonument ? 10 : 0 } }
+    public var green: Int { switch self { case .park: 12; case .plaza: 6; default: isMonument ? 10 : 0 } }
     /// Multiplier used when someone visits this place.
     public var visitValue: Int {
         switch self {
         case .shop: 3
         case .cafe, .office, .plaza: 2
-        default: 1
+        default: isMonument ? 6 : 1
         }
     }
     /// Places other players can "stop at" and pay you for.
-    public var isVisitable: Bool { [.shop, .cafe, .office, .school, .park, .plaza].contains(self) }
+    public var isVisitable: Bool { isMonument || [.shop, .cafe, .office, .school, .park, .plaza].contains(self) }
     public var isBuilding: Bool { self != .road && self != .empty }
 }
 
@@ -118,6 +164,30 @@ public struct CityMap: Codable, Sendable {
     static let verticalOffsets = [3, 2, 2, 3, 2]
 
     public var tiles: [[Tile]] // [y][x]
+    /// Upgrade level of your buildings (missing means level 1).
+    public var levels: [Cell: Int] = [:]
+    public func level(at c: Cell) -> Int { levels[c] ?? 1 }
+    /// How much an upgraded building adds compared with level 1.
+    public func levelFactor(at c: Cell) -> Double { 1 + 0.5 * Double(level(at: c) - 1) }
+
+    public enum UpgradeResult: Equatable, Sendable {
+        case upgraded(level: Int, cost: Int)
+        case notYourBuilding
+        case maxed
+        case tooExpensive(cost: Int)
+    }
+
+    /// Raise one of your buildings a level, paying from `coins`.
+    public mutating func upgrade(_ c: Cell, coins: inout Int) -> UpgradeResult {
+        guard let t = tile(c), t.canUpgrade, ownership(of: c) == .mine else { return .notYourBuilding }
+        let next = level(at: c) + 1
+        guard next <= Tile.maxLevel else { return .maxed }
+        let cost = t.upgradeCost(to: next)
+        guard coins >= cost else { return .tooExpensive(cost: cost) }
+        coins -= cost
+        levels[c] = next
+        return .upgraded(level: next, cost: cost)
+    }
     public var ownership: [Ownership]
     public var owners: [BlockOwner]
     public let plotPrices: [Int: Int]
@@ -176,6 +246,17 @@ public struct CityMap: Codable, Sendable {
         for (x, y) in [(10, 8), (15, 22), (22, 18), (20, 10)] where ownership[blockIndex(x, y)] == .other && t[y][x] != .road {
             t[y][x] = .busStop
         }
+        // Players from monument cities have their city's first monument on their block.
+        for (bi, o) in owners.enumerated() where ownership[bi] == .other {
+            guard let m = Tile.monuments(in: o.city).first else { continue }
+            let ox = (bi % blocksPerSide) * blockSize, oy = (bi / blocksPerSide) * blockSize
+            spot: for y in oy..<(oy + blockSize) {
+                for x in ox..<(ox + blockSize) where t[y][x].isBuilding && t[y][x] != .busStop && nearRoad(x, y) {
+                    t[y][x] = m
+                    break spot
+                }
+            }
+        }
         for (i, _) in owners.enumerated() where ownership[i] == .forSale { owners[i] = BlockOwner(name: "", city: "") }
         return CityMap(tiles: t, ownership: ownership, owners: owners, plotPrices: defaultPlotPrices, busRoute: route)
     }
@@ -216,7 +297,7 @@ public struct CityMap: Codable, Sendable {
         public var side: Dir
     }
 
-    static let frontagePriority: [Tile] = [.busStop, .plaza, .park, .cafe, .shop, .office, .school, .apartments, .house]
+    static let frontagePriority: [Tile] = Tile.allCases.filter(\.isMonument) + [.busStop, .plaza, .park, .cafe, .shop, .office, .school, .apartments, .house]
 
     public func frontage(of c: Cell) -> Frontage? {
         var best: Frontage? = nil
@@ -234,7 +315,7 @@ public struct CityMap: Codable, Sendable {
     }
 
     public enum SquareKind: Equatable, Sendable {
-        case home, forSale, shop, cafe, office, school, park, plaza, busStop
+        case home, forSale, shop, cafe, office, school, park, plaza, busStop, landmark
     }
 
     /// The board effect of a street square (nil = no marked effect).
@@ -245,6 +326,7 @@ public struct CityMap: Codable, Sendable {
         case .forSale: return .forSale
         case .other:
             switch f.tile {
+            case let t where t.isMonument: return .landmark
             case .busStop: return .busStop
             case .plaza: return .plaza
             case .park: return .park
@@ -295,10 +377,36 @@ public struct CityMap: Codable, Sendable {
     public struct BuildIssues: Equatable, Sendable {
         public var brokenEdges: [Cell] = []
         public var unreachable: [Cell] = []
-        public var isEmpty: Bool { brokenEdges.isEmpty && unreachable.isEmpty }
+        /// Street squares on your land that the rest of the city can't drive to.
+        public var disconnected: [Cell] = []
+        public var isEmpty: Bool { brokenEdges.isEmpty && unreachable.isEmpty && disconnected.isEmpty }
+        public var count: Int { brokenEdges.count + unreachable.count + disconnected.count }
     }
 
-    /// Streets on your border must continue the neighbour's streets; every building needs a street next to it.
+    /// Street squares reachable from the streets outside your land.
+    public func connectedRoads() -> Set<Cell> {
+        var seen = Set<Cell>(), stack: [Cell] = []
+        for c in roadCells where ownership(of: c) != .mine { seen.insert(c); stack.append(c) }
+        while let c = stack.popLast() {
+            for d in Dir.optionOrder {
+                let n = c.moved(d)
+                if isRoad(n) && seen.insert(n).inserted { stack.append(n) }
+            }
+        }
+        return seen
+    }
+
+    /// The street square closest to `c` (used when a street you stood on is built over).
+    public func nearestRoad(to c: Cell) -> Cell? {
+        roadCells.min { a, b in
+            let da = (a.x - c.x) * (a.x - c.x) + (a.y - c.y) * (a.y - c.y)
+            let db = (b.x - c.x) * (b.x - c.x) + (b.y - c.y) * (b.y - c.y)
+            return da < db
+        }
+    }
+
+    /// Streets on your border must continue the neighbour's streets; every building needs a street next to it;
+    /// every street on your land must join the city's streets.
     public func buildIssues() -> BuildIssues {
         var out = BuildIssues()
         for bi in myBlocks {
@@ -317,6 +425,15 @@ public struct CityMap: Codable, Sendable {
                 for x in o.x..<(o.x + B) {
                     let c = Cell(x, y)
                     if tiles[y][x].isBuilding && !Dir.optionOrder.contains(where: { isRoad(c.moved($0)) }) { out.unreachable.append(c) }
+                }
+            }
+        }
+        let joined = connectedRoads()
+        for bi in myBlocks {
+            let o = Self.blockOrigin(bi)
+            for y in o.y..<(o.y + Self.blockSize) {
+                for x in o.x..<(o.x + Self.blockSize) where tiles[y][x] == .road && !joined.contains(Cell(x, y)) {
+                    out.disconnected.append(Cell(x, y))
                 }
             }
         }

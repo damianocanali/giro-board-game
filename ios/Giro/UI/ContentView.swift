@@ -8,6 +8,10 @@ struct ContentView: View {
             CityView(model: model)
                 .ignoresSafeArea()
 
+            if model.showMenu {
+                MenuView(model: model)
+                    .transition(.opacity)
+            } else {
             VStack(spacing: 10) {
                 TopBar(model: model)
                 if let t = model.toast {
@@ -19,12 +23,17 @@ struct ContentView: View {
                 if !model.forkChoices.isEmpty {
                     ForkPanel(model: model)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if model.isBuilding {
+                    BuildPanel(model: model)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     RollDock(model: model)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
+            .transition(.opacity)
+            }
 
             if let v = model.rolledValue {
                 Text("\(v)")
@@ -45,11 +54,22 @@ struct ContentView: View {
                 Dimmer()
                 SaleCard(model: model, block: b)
             }
+
+            if let e = model.stampEvent {
+                PassportStampView(model: model, event: e)
+                    .id(e.id)
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.25), value: model.stampEvent)
         .animation(.spring(duration: 0.35), value: model.toast)
         .animation(.spring(duration: 0.3), value: model.rolledValue)
         .animation(.spring(duration: 0.3), value: model.forkChoices)
+        .animation(.spring(duration: 0.3), value: model.isBuilding)
+        .animation(.easeInOut(duration: 0.4), value: model.showMenu)
         .sheet(isPresented: $model.showShop) { ShopSheet(model: model).presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $model.showCityPicker) { CityPickerSheet(model: model).presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $model.showSkins) { SkinsSheet(model: model).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $model.showMissions) { MissionsSheet(model: model).presentationDetents([.large]) }
         .task { model.start() }
     }
@@ -61,7 +81,7 @@ private struct TopBar: View {
     let model: GameModel
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Pill {
                 Image(systemName: "circle.fill").foregroundStyle(Theme.coin).font(.system(size: 12))
                 Text(model.player.coins.formatted()).font(Theme.mono(16))
@@ -70,18 +90,30 @@ private struct TopBar: View {
             Pill {
                 Image(systemName: "die.face.5.fill").foregroundStyle(Theme.ink)
                 Text("\(model.player.rolls)").font(Theme.mono(16))
-                if let s = model.player.secondsToNextRoll(now: model.now) {
-                    Text("+1 in \(s / 60):\(String(format: "%02d", s % 60))").font(Theme.body(11)).foregroundStyle(Theme.ink2)
-                }
             }
             .accessibilityLabel("\(model.player.rolls) rolls")
             Spacer(minLength: 0)
             Menu {
-                Button { model.scene?.focusOnPawn() } label: { Label("Follow me", systemImage: "figure.walk") }
-                Button { model.scene?.focusOnMyBlocks() } label: { Label("My block", systemImage: "house") }
-                Button { model.scene?.focusOnCity() } label: { Label("Whole city", systemImage: "map") }
-            } label: { RoundIcon(system: "camera.viewfinder") }
-            .accessibilityLabel("Camera")
+                Section("Camera") {
+                    Button { model.scene?.focusOnPawn() } label: { Label("Follow me", systemImage: "figure.walk") }
+                    Button { model.scene?.focusOnMyBlocks() } label: { Label("My block", systemImage: "house") }
+                    Button { model.scene?.focusOnCity() } label: { Label("Whole city", systemImage: "map") }
+                }
+                Button { model.showSkins = true } label: { Label("Skins", systemImage: "tshirt") }
+                Button { model.showCityPicker = true } label: { Label(model.player.homeCity ?? "Choose your city", systemImage: "mappin.and.ellipse") }
+                Toggle(isOn: Binding(get: { model.musicOn }, set: { model.musicOn = $0 })) {
+                    Label("Music", systemImage: "music.note")
+                }
+                Toggle(isOn: Binding(get: { model.soundOn }, set: { model.soundOn = $0 })) {
+                    Label("Sound effects", systemImage: "speaker.wave.2")
+                }
+            } label: { RoundIcon(system: "ellipsis") }
+            .accessibilityLabel("Camera, skins, city and sound")
+            Button { model.isBuilding ? model.leaveBuild() : model.enterBuild() } label: {
+                RoundIcon(system: model.isBuilding ? "xmark" : "hammer.fill", active: model.isBuilding)
+            }
+            .accessibilityLabel(model.isBuilding ? "Leave build mode" : "Build on your land")
+            .disabled(model.isBusy)
             Button { model.showMissions = true } label: { RoundIcon(system: "flag.checkered", badge: Mission.daily.contains { model.player.canClaim($0) }) }
                 .accessibilityLabel("Missions and passport")
             Button { model.showShop = true } label: { RoundIcon(system: "bag.fill") }
@@ -95,6 +127,8 @@ private struct Pill<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         HStack(spacing: 6) { content }
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(Theme.ink)
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(Theme.sheet.opacity(0.95), in: Capsule())
@@ -106,12 +140,13 @@ private struct Pill<Content: View>: View {
 private struct RoundIcon: View {
     var system: String
     var badge = false
+    var active = false
     var body: some View {
         Image(systemName: system)
             .font(.system(size: 17, weight: .bold))
             .foregroundStyle(Theme.ink)
             .frame(width: 44, height: 44)
-            .background(Theme.sheet.opacity(0.95), in: Circle())
+            .background(active ? Theme.you : Theme.sheet.opacity(0.95), in: Circle())
             .overlay(Circle().stroke(Theme.line, lineWidth: 1))
             .overlay(alignment: .topTrailing) {
                 if badge { Circle().fill(Theme.bad).frame(width: 12, height: 12).offset(x: -2, y: 2) }
@@ -142,6 +177,14 @@ private struct RollDock: View {
     let model: GameModel
 
     var body: some View {
+        if model.player.rolls == 0, let s = model.player.secondsToRefill(now: model.now) {
+            OutOfRollsCard(model: model, seconds: s)
+        } else {
+            dock
+        }
+    }
+
+    private var dock: some View {
         HStack(alignment: .bottom, spacing: 10) {
             Button { model.cycleMultiplier() } label: {
                 VStack(spacing: 0) {
@@ -168,6 +211,34 @@ private struct RollDock: View {
             .buttonStyle(ChunkyButtonStyle(color: Theme.button, shadow: Theme.buttonShadow))
             .disabled(!model.canRoll)
         }
+        .frame(maxWidth: 380)
+    }
+}
+
+/// Shown instead of the ROLL button once today's rolls are spent.
+private struct OutOfRollsCard: View {
+    let model: GameModel
+    let seconds: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("New rolls in").font(Theme.body(12, .bold)).foregroundStyle(Theme.ink2)
+                Text(GameModel.clock(seconds)).font(Theme.mono(28)).foregroundStyle(Theme.ink)
+                    .contentTransition(.numericText(countsDown: true))
+                Text("\(GameConfig.dailyRolls) free rolls every day at midnight").font(Theme.body(11)).foregroundStyle(Theme.ink2)
+            }
+            .accessibilityElement(children: .combine)
+            Spacer(minLength: 0)
+            Button { model.showShop = true } label: {
+                Text("Get rolls").font(Theme.display(17)).foregroundStyle(Theme.ink)
+                    .padding(.horizontal, 16).frame(minHeight: 52)
+            }
+            .buttonStyle(ChunkyButtonStyle(color: Theme.button, shadow: Theme.buttonShadow))
+        }
+        .padding(14)
+        .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Theme.line, lineWidth: 2))
         .frame(maxWidth: 380)
     }
 }

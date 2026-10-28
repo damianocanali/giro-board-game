@@ -16,6 +16,9 @@ final class CityScene {
     private let arrowRoot: Entity
     private let trafficRoot: Entity
     private let popRoot: Entity
+    private let issueRoot: Entity
+    private let gridRoot = Entity()
+    private(set) var isBuildMode = false
     private let cameraAnchor: AnchorEntity
     private let camera: PerspectiveCamera
     private(set) var pawn: Entity
@@ -37,9 +40,13 @@ final class CityScene {
     private var target = SIMD3<Float>(0, 0, 0)
     private var goalTarget = SIMD3<Float>(0, 0, 0)
     var followPawn = true
+    /// Title menu: the camera slowly circles the whole city.
+    private var showcase = false
 
     var onTapFork: ((Int) -> Void)?
     var onTapSale: ((Int) -> Void)?
+    /// Build mode: a square of the city was tapped.
+    var onTapCell: ((Cell) -> Void)?
 
     static let cell: Float = 2
     static let streetTop: Float = 0.22
@@ -68,6 +75,7 @@ final class CityScene {
         arrowRoot = Entity()
         trafficRoot = Entity()
         popRoot = Entity()
+        issueRoot = Entity()
         cameraAnchor = AnchorEntity(world: .zero)
         camera = PerspectiveCamera()
         pawn = Entity()
@@ -79,7 +87,7 @@ final class CityScene {
         arView.renderOptions.insert(.disableCameraGrain)
 
         arView.scene.addAnchor(world)
-        [cityRoot, fxRoot, coinRoot, arrowRoot, trafficRoot, popRoot].forEach { world.addChild($0) }
+        [cityRoot, fxRoot, coinRoot, arrowRoot, trafficRoot, popRoot, issueRoot, gridRoot].forEach { world.addChild($0) }
 
         camera.camera.fieldOfViewInDegrees = 42
         cameraAnchor.addChild(camera)
@@ -108,19 +116,20 @@ final class CityScene {
     }
 
     /// Builds everything for the current game state.
-    func setup(map: CityMap, pawnAt cell: Cell, heading: Dir, golden: Bool, pickups: Set<Cell>, ghosts: [Ghost]) {
+    func setup(map: CityMap, pawnAt cell: Cell, heading: Dir, skin: Skin, pickups: Set<Cell>, ghosts: [Ghost]) {
         self.map = map
         buildCity()
-        pawn = makeCharacter(color: golden ? 0xE0A100 : Theme.youHex, scale: 1.25, eyes: true)
+        pawn = Entity()
         let tag = label("YOU", size: 0.32, fg: 0x4A2E1B, bg: Theme.youHex)
         tag.position.y = 2.15
         pawn.addChild(tag)
         pawn.position = Self.position(cell, y: Self.streetTop)
         pawn.orientation = yaw(heading)
         world.addChild(pawn)
-        die = makeDie()
+        die = Entity()
         die.isEnabled = false
         world.addChild(die)
+        applySkin(skin)
         for c in pickups { addCoin(at: c) }
         let offsets: [SIMD3<Float>] = [[0.4, 0, 0.4], [-0.4, 0, 0.4], [0.4, 0, -0.4], [-0.4, 0, -0.4], [0, 0, 0.5], [0.5, 0, 0]]
         for g in ghosts {
@@ -134,7 +143,7 @@ final class CityScene {
             world.addChild(e)
             ghostEntities[g.id] = e
         }
-        spawnCars(16)
+        spawnCars(8)
         target = pawn.position
         goalTarget = target
     }
@@ -154,27 +163,218 @@ final class CityScene {
         buildFX()
     }
 
+    // MARK: Build mode
+
+    func setBuildMode(_ on: Bool) {
+        isBuildMode = on
+        trafficRoot.isEnabled = !on
+        coinRoot.isEnabled = !on
+        for e in ghostEntities.values { e.isEnabled = !on }
+        // Fade or restore everything outside your land.
+        for (c, e) in cellEntities where map.ownership(of: c) != .mine {
+            if on { e.components.set(OpacityComponent(opacity: 0.22)) } else { e.components.remove(OpacityComponent.self) }
+        }
+        if on { fxRoot.components.set(OpacityComponent(opacity: 0.4)) } else { fxRoot.components.remove(OpacityComponent.self) }
+        refreshGrid()
+        if !on { respawnCars() }
+    }
+
+    /// Build mode: a soft yellow pad on every free square of your land and a thin outline on every square,
+    /// so it is obvious where you can build.
+    private func refreshGrid() {
+        gridRoot.children.removeAll()
+        guard isBuildMode else { return }
+        let line = unlit(0xF5B700)
+        for bi in map.myBlocks {
+            let o = CityMap.blockOrigin(bi)
+            for y in o.y..<(o.y + CityMap.blockSize) {
+                for x in o.x..<(o.x + CityMap.blockSize) {
+                    let c = Cell(x, y)
+                    let t = map.tiles[y][x]
+                    let h = (t == .road ? Self.streetTop : Self.blockTop) + 0.02
+                    let g = Entity()
+                    g.position = Self.position(c, y: h)
+                    if t == .empty {
+                        g.addChild(ModelEntity(mesh: box(1.6, 0.02, 1.6, r: 0.1), materials: [unlit(0xFFE9A8)]))
+                        let plus1 = ModelEntity(mesh: box(0.5, 0.03, 0.1), materials: [line])
+                        let plus2 = ModelEntity(mesh: box(0.1, 0.03, 0.5), materials: [line])
+                        g.addChild(plus1); g.addChild(plus2)
+                    }
+                    for (dx, dz, w, d) in [(Float(0), Float(-0.95), Float(1.9), Float(0.05)), (0, 0.95, 1.9, 0.05), (-0.95, 0, 0.05, 1.9), (0.95, 0, 0.05, 1.9)] {
+                        let e = ModelEntity(mesh: box(w, 0.03, d), materials: [line])
+                        e.position = [dx, 0, dz]
+                        g.addChild(e)
+                    }
+                    gridRoot.addChild(g)
+                }
+            }
+        }
+    }
+
+    /// Show `map` (a draft, or the shared city again) by rebuilding the changed squares and the streets next to them.
+    func showDraft(_ map: CityMap, changed: [Cell]) {
+        self.map = map
+        var dirty = Set<Cell>()
+        for c in changed {
+            dirty.insert(c)
+            for d in Dir.optionOrder where map.inBounds(c.moved(d)) { dirty.insert(c.moved(d)) }
+        }
+        for c in dirty { buildCell(c) }
+        refreshGrid()
+    }
+
+    // MARK: Effects
+
+    /// New or changed buildings grow out of the ground with a little bounce.
+    func popIn(_ cells: [Cell]) {
+        for c in cells {
+            guard let e = cellEntities[c] else { continue }
+            var t = e.transform
+            e.transform.scale = [0.2, 0.2, 0.2]
+            t.scale = [1.12, 1.12, 1.12]
+            e.move(to: t, relativeTo: e.parent, duration: 0.22, timingFunction: .easeOut)
+            Task { [weak e] in
+                try? await Task.sleep(for: .milliseconds(230))
+                guard let e else { return }
+                var t2 = e.transform
+                t2.scale = .one
+                e.move(to: t2, relativeTo: e.parent, duration: 0.18, timingFunction: .easeInOut)
+            }
+        }
+    }
+
+    /// A burst of confetti from a square.
+    func burst(at c: Cell, colors: [UInt32] = [0xF5B700, 0xE5533D, 0x5DBB63, 0x4A90D9, 0xFFFFFF], count: Int = 22, height: Float = 1.2) {
+        let origin = Self.position(c, y: height)
+        for i in 0..<count {
+            let e = ModelEntity(mesh: box(0.14, 0.14, 0.04), materials: [unlit(colors[i % colors.count])])
+            e.position = origin
+            popRoot.addChild(e)
+            let a = Float.random(in: 0..<(2 * .pi))
+            let out = Float.random(in: 0.8...2.2)
+            var t = e.transform
+            t.translation = origin + [cos(a) * out, Float.random(in: 1.4...3.2), sin(a) * out]
+            t.rotation = simd_quatf(angle: Float.random(in: 2...8), axis: simd_normalize([Float.random(in: -1...1), 1, Float.random(in: -1...1)]))
+            e.move(to: t, relativeTo: popRoot, duration: 0.55, timingFunction: .easeOut)
+            Task { [weak e, weak self] in
+                try? await Task.sleep(for: .milliseconds(560))
+                guard let e, let self else { return }
+                var t2 = e.transform
+                t2.translation.y -= 2.4
+                t2.scale = [0.01, 0.01, 0.01]
+                e.move(to: t2, relativeTo: self.popRoot, duration: 0.7, timingFunction: .easeIn)
+                try? await Task.sleep(for: .milliseconds(720))
+                e.removeFromParent()
+            }
+        }
+    }
+
+    /// Gold coins jump out of a square and spin away upward.
+    func coinFountain(at c: Cell, count: Int = 5) {
+        let origin = Self.position(c, y: 1.0)
+        for i in 0..<count {
+            let e = ModelEntity(mesh: cylinder(0.05, 0.22), materials: [mat(0xE0A100)])
+            e.position = origin
+            e.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
+            popRoot.addChild(e)
+            let a = Float(i) / Float(count) * 2 * .pi + Float.random(in: 0...0.5)
+            var t = e.transform
+            t.translation = origin + [cos(a) * 0.9, 2.6 + Float.random(in: 0...0.8), sin(a) * 0.9]
+            t.rotation = simd_quatf(angle: .pi * 3, axis: [0, 1, 0]) * e.orientation
+            e.move(to: t, relativeTo: popRoot, duration: 0.6, timingFunction: .easeOut)
+            Task { [weak e, weak self] in
+                try? await Task.sleep(for: .milliseconds(620))
+                guard let e, let self else { return }
+                var t2 = e.transform
+                t2.scale = [0.01, 0.01, 0.01]
+                t2.translation.y += 0.6
+                e.move(to: t2, relativeTo: self.popRoot, duration: 0.3, timingFunction: .easeIn)
+                try? await Task.sleep(for: .milliseconds(320))
+                e.removeFromParent()
+            }
+        }
+    }
+
+    /// Red discs where a border street doesn't meet the neighbour's, red rings on buildings without a street,
+    /// and orange discs on streets that don't join the city. Pass nil to clear.
+    func showIssues(_ issues: CityMap.BuildIssues?) {
+        issueRoot.children.removeAll()
+        guard let issues else { return }
+        for c in issues.brokenEdges {
+            let e = ModelEntity(mesh: cylinder(0.12, 0.5), materials: [unlit(0xE5333B)])
+            e.position = Self.position(c, y: 0.55)
+            issueRoot.addChild(e)
+        }
+        for c in issues.disconnected where !issues.brokenEdges.contains(c) {
+            let e = ModelEntity(mesh: cylinder(0.12, 0.42), materials: [unlit(0xF28C28)])
+            e.position = Self.position(c, y: 0.5)
+            issueRoot.addChild(e)
+        }
+        for c in issues.unreachable {
+            // A ring made of short posts (RealityKit has no torus primitive).
+            let g = Entity()
+            g.position = Self.position(c, y: Self.blockTop)
+            for i in 0..<10 {
+                let a = Float(i) / 10 * 2 * .pi
+                let post = ModelEntity(mesh: box(0.22, 0.14, 0.22), materials: [unlit(0xE5333B)])
+                post.position = [cos(a) * 0.82, 0.08, sin(a) * 0.82]
+                g.addChild(post)
+            }
+            issueRoot.addChild(g)
+        }
+    }
+
+    /// The city square under a screen point (the ray meets the ground at block height).
+    func cell(at point: CGPoint) -> Cell? {
+        guard let ray = arView.ray(through: point), abs(ray.direction.y) > 1e-4 else { return nil }
+        let t = (Self.blockTop - ray.origin.y) / ray.direction.y
+        guard t > 0 else { return nil }
+        let p = ray.origin + ray.direction * t
+        let c = Cell(Int(((p.x + 29) / Self.cell).rounded()), Int(((p.z + 29) / Self.cell).rounded()))
+        return map.inBounds(c) ? c : nil
+    }
+
+    func placePawn(at c: Cell, heading: Dir) {
+        pawn.position = Self.position(c, y: Self.streetTop)
+        pawn.orientation = yaw(heading)
+    }
+
+    func placeGhost(_ id: Int, at c: Cell) {
+        ghostEntities[id]?.position = Self.position(c, y: Self.streetTop) + (ghostOffsets[id] ?? .zero)
+    }
+
+    private func respawnCars() {
+        let roads = map.roadCells
+        guard !roads.isEmpty else { return }
+        for i in cars.indices where !map.isRoad(cars[i].cell) || !map.isRoad(cars[i].cell.moved(cars[i].dir)) {
+            let c = roads[(i * 37 + 11) % roads.count]
+            cars[i].cell = c
+            cars[i].dir = map.options(at: c, heading: .east).first ?? .east
+            cars[i].t = 0
+        }
+    }
+
     // MARK: Materials and meshes
 
     private var materialCache: [UInt32: SimpleMaterial] = [:]
     private var unlitCache: [UInt32: UnlitMaterial] = [:]
     private var meshCache: [String: MeshResource] = [:]
 
-    private func mat(_ hex: UInt32) -> SimpleMaterial {
+    func mat(_ hex: UInt32) -> SimpleMaterial {
         if let m = materialCache[hex] { return m }
         let m = SimpleMaterial(color: UIColor(hex: hex), roughness: 0.85, isMetallic: false)
         materialCache[hex] = m
         return m
     }
 
-    private func unlit(_ hex: UInt32) -> UnlitMaterial {
+    func unlit(_ hex: UInt32) -> UnlitMaterial {
         if let m = unlitCache[hex] { return m }
         let m = UnlitMaterial(color: UIColor(hex: hex))
         unlitCache[hex] = m
         return m
     }
 
-    private func box(_ w: Float, _ h: Float, _ d: Float, r: Float = 0) -> MeshResource {
+    func box(_ w: Float, _ h: Float, _ d: Float, r: Float = 0) -> MeshResource {
         let k = "b\(w)|\(h)|\(d)|\(r)"
         if let m = meshCache[k] { return m }
         let m = MeshResource.generateBox(width: w, height: h, depth: d, cornerRadius: r, splitFaces: false)
@@ -182,7 +382,7 @@ final class CityScene {
         return m
     }
 
-    private func sphere(_ r: Float) -> MeshResource {
+    func sphere(_ r: Float) -> MeshResource {
         let k = "s\(r)"
         if let m = meshCache[k] { return m }
         let m = MeshResource.generateSphere(radius: r)
@@ -190,7 +390,7 @@ final class CityScene {
         return m
     }
 
-    private func cylinder(_ h: Float, _ r: Float) -> MeshResource {
+    func cylinder(_ h: Float, _ r: Float) -> MeshResource {
         let k = "c\(h)|\(r)"
         if let m = meshCache[k] { return m }
         let m = MeshResource.generateCylinder(height: h, radius: r)
@@ -198,7 +398,7 @@ final class CityScene {
         return m
     }
 
-    private func cone(_ h: Float, _ r: Float) -> MeshResource {
+    func cone(_ h: Float, _ r: Float) -> MeshResource {
         let k = "n\(h)|\(r)"
         if let m = meshCache[k] { return m }
         let m = MeshResource.generateCone(height: h, radius: r)
@@ -207,7 +407,7 @@ final class CityScene {
     }
 
     /// Square pyramid (house roofs), centred on its base.
-    private func pyramid(_ base: Float, _ height: Float) -> MeshResource {
+    func pyramid(_ base: Float, _ height: Float) -> MeshResource {
         let k = "p\(base)|\(height)"
         if let m = meshCache[k] { return m }
         let h = base / 2
@@ -232,7 +432,7 @@ final class CityScene {
     }
 
     @discardableResult
-    private func part(_ mesh: MeshResource, _ hex: UInt32, _ p: SIMD3<Float>, in parent: Entity) -> ModelEntity {
+    func part(_ mesh: MeshResource, _ hex: UInt32, _ p: SIMD3<Float>, in parent: Entity) -> ModelEntity {
         let e = ModelEntity(mesh: mesh, materials: [mat(hex)])
         e.position = p
         parent.addChild(e)
@@ -256,11 +456,13 @@ final class CityScene {
         g.position = Self.position(c)
         let t = map.tiles[c.y][c.x]
         if t == .road {
-            let hex: UInt32
-            if map.isIntersection(c) { hex = Theme.crossingHex }
-            else if let k = map.squareKind(map.frontage(of: c)) { hex = k.tileColor }
-            else { hex = Theme.streetHex }
-            part(box(1.84, Self.streetTop, 1.84, r: 0.08), hex, [0, Self.streetTop / 2, 0], in: g)
+            let crossing = map.isIntersection(c)
+            part(box(1.84, Self.streetTop, 1.84, r: 0.08), crossing ? Theme.crossingHex : Theme.streetHex, [0, Self.streetTop / 2, 0], in: g)
+            // Squares with an effect get a small coloured pad instead of a fully coloured tile.
+            if !crossing, let k = map.squareKind(map.frontage(of: c)) {
+                part(box(1.0, 0.04, 1.0, r: 0.02), k.tileColor, [0, Self.streetTop + 0.01, 0], in: g)
+            }
+            if isBuildMode && map.ownership(of: c) != .mine { g.components.set(OpacityComponent(opacity: 0.22)) }
         } else {
             buildBlockCell(c, tile: t, into: g)
         }
@@ -339,7 +541,31 @@ final class CityScene {
             if sale && (c.x + c.y) % 3 == 0 { addTree([-0.3, top, 0.3], 1.0, into: b) }
         case .road:
             break
+        default:
+            buildMonument(t, into: b)
         }
+        // Upgraded buildings grow a little and wear gold badges, one per level.
+        let level = map.level(at: c)
+        if level > 1 && t.canUpgrade {
+            let grow = 1 + 0.1 * Float(level - 1)
+            b.scale = [grow, grow, grow]
+            part(box(1.86, 0.07, 1.86, r: 0.03), 0xE0A100, [0, top + 0.035, 0], in: g)
+            let height = b.visualBounds(relativeTo: g).max.y
+            for i in 0..<(level - 1) {
+                let x = (Float(i) - Float(level - 2) / 2) * 0.42
+                let coin = ModelEntity(mesh: cylinder(0.06, 0.18), materials: [unlit(0xF5B700)])
+                coin.position = [x, height + 0.35, 0]
+                coin.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
+                coin.name = "badge"
+                g.addChild(coin)
+                let star = ModelEntity(mesh: sphere(0.07), materials: [unlit(0xFFFFFF)])
+                star.position = [x, height + 0.35, 0.04]
+                star.scale = [1, 1, 0.3]
+                g.addChild(star)
+            }
+        }
+        // In build mode everything that isn't your land fades back.
+        if isBuildMode && map.ownership(of: c) != .mine { g.components.set(OpacityComponent(opacity: 0.22)) }
         // Face the building toward its street.
         let face: Float
         if map.isRoad(c.moved(.south)) { face = 0 }
@@ -416,16 +642,48 @@ final class CityScene {
         return g
     }
 
-    func setGoldenPawn(_ on: Bool) {
-        let hex: UInt32 = on ? 0xE0A100 : Theme.youHex
-        for case let m as ModelEntity in pawn.children where (m.model?.mesh.bounds.extents.x ?? 0) > 0.15 {
-            m.model?.materials = [mat(hex)]
+    /// Dress the pawn and the die in a skin. The pawn and die entities stay the same, only their looks change.
+    func applySkin(_ skin: Skin) {
+        pawn.findEntity(named: "look")?.removeFromParent()
+        let look = makeCharacter(color: skin.pawn, scale: 1.25, eyes: true)
+        look.name = "look"
+        addHat(skin.hat, color: skin.hatColor, to: look)
+        pawn.addChild(look)
+        for c in Array(die.children) { c.removeFromParent() }
+        die.addChild(makeDie(skin))
+    }
+
+    private func addHat(_ hat: Skin.Hat, color: UInt32, to g: Entity) {
+        switch hat {
+        case .none:
+            break
+        case .cap:
+            let dome = part(sphere(0.31), color, [0, 1.2, 0], in: g)
+            dome.scale = [1, 0.6, 1]
+            part(box(0.38, 0.04, 0.3, r: 0.02), color, [0, 1.2, 0.27], in: g)
+        case .crown:
+            part(box(0.44, 0.12, 0.44, r: 0.02), color, [0, 1.38, 0], in: g)
+            for x: Float in [-0.19, 0.19] { for z: Float in [-0.19, 0.19] {
+                part(sphere(0.06), color, [x, 1.5, z], in: g)
+            } }
+            part(sphere(0.05), 0xE5533D, [0, 1.38, 0.23], in: g)
+        case .topHat:
+            part(box(0.56, 0.04, 0.56, r: 0.02), color, [0, 1.34, 0], in: g)
+            part(box(0.36, 0.34, 0.36, r: 0.05), color, [0, 1.53, 0], in: g)
+            part(box(0.37, 0.06, 0.37, r: 0.02), 0xE5533D, [0, 1.39, 0], in: g)
+        case .flower:
+            let c: SIMD3<Float> = [0.17, 1.33, 0.14]
+            part(sphere(0.06), 0xF5B700, c, in: g)
+            for k in 0..<5 {
+                let a = Float(k) / 5 * 2 * .pi
+                part(sphere(0.055), color, c + [cos(a) * 0.09, sin(a) * 0.09, 0], in: g)
+            }
         }
     }
 
-    private func makeDie() -> Entity {
+    private func makeDie(_ skin: Skin) -> Entity {
         let g = Entity()
-        part(box(1.3, 1.3, 1.3, r: 0.22), 0xFFFDF8, .zero, in: g)
+        part(box(1.3, 1.3, 1.3, r: 0.22), skin.die, .zero, in: g)
         // Faces: +y 1, -y 6, +z 2, -z 5, +x 3, -x 4 (opposites add to 7).
         let pips: [Int: [SIMD2<Float>]] = [
             1: [[0, 0]], 2: [[-1, -1], [1, 1]], 3: [[-1, -1], [0, 0], [1, 1]],
@@ -439,8 +697,9 @@ final class CityScene {
         ]
         for (v, n, u, w) in faces {
             for p in pips[v] ?? [] {
-                let e = part(sphere(0.11), v == 1 ? 0xE5533D : 0x2B1A10, n * 0.6 + (u * p.x + w * p.y) * 0.34, in: g)
-                e.scale = SIMD3<Float>(repeating: 1) - simd_abs(n) * 0.55
+                // Flattened spheres sitting on the face (half-size 0.65) so they show as round pips.
+                let e = part(sphere(0.12), v == 1 ? skin.onePip : skin.pips, n * 0.645 + (u * p.x + w * p.y) * 0.3, in: g)
+                e.scale = SIMD3<Float>(repeating: 1) - simd_abs(n) * 0.6
             }
         }
         return g
@@ -641,6 +900,19 @@ final class CityScene {
         goalTarget = sum / Float(bs.count)
         goalDistance = bs.count > 1 ? 38 : 30
     }
+    /// Build mode: look down more steeply and keep your land in the upper part of the screen, above the build panel.
+    func focusForBuilding() {
+        focusOnMyBlocks()
+        phi = 0.62
+        goalDistance += 14
+        goalTarget += SIMD3<Float>(cos(theta), 0, sin(theta)) * 9
+    }
+
+    func setShowcase(_ on: Bool) {
+        showcase = on
+        if on { followPawn = false; goalTarget = .zero; goalDistance = 78; phi = 0.8 } else { focusOnPawn() }
+    }
+
     func focusOnCity() { followPawn = false; goalTarget = .zero; goalDistance = 92 }
 
     func orbit(by translation: CGPoint) {
@@ -659,10 +931,12 @@ final class CityScene {
             if cur.name.hasPrefix("sale-"), let b = Int(cur.name.dropFirst(5)) { onTapSale?(b); return }
             e = cur.parent
         }
+        if isBuildMode, let c = cell(at: point) { onTapCell?(c) }
     }
 
     private func update(dt: Float) {
         clock += dt
+        if showcase { theta += dt * 0.06 }
         if followPawn { goalTarget = pawn.position * SIMD3<Float>(1, 0, 1) }
         let k = min(1, dt * 5), kd = min(1, dt * 4)
         target += (goalTarget - target) * k
@@ -679,3 +953,4 @@ final class CityScene {
         updateCars(dt)
     }
 }
+

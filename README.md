@@ -90,16 +90,29 @@ ios/Tests/             rule tests (the board matches the web prototype square fo
 - Every landing effect: coins, payday, free roll, plaza duel, bus ride, buying land.
 - Passport stamps and coins on the street.
 - Simulated other players who pay you when they stop at your block, and cars driving around.
-- Bet multiplier, roll regeneration, missions, and a demo shop with the crate odds shown.
-- Progress saved on the device.
+- Bet multiplier, missions, and a demo shop with the crate odds shown.
+- Daily rolls: 30 free rolls a day, topped back up at local midnight. Bought or won rolls stack above that. When you run out, a countdown to the next refill replaces the ROLL button. Daily missions reset at the same time.
+- Skins for your pawn and die, bought with coins (the golden one comes with the pass). Pick them from the ⋯ menu or the title screen.
+- Background music, a gentle looping tune. It mixes with your own music, follows the silent switch, and can be turned off from the ⋯ menu or the title screen. Re-render it with `python3 ios/tools/make_theme.py out.wav`.
+- Build mode focus: everything outside your land fades back, every square of your land gets an outline, and free squares show a yellow pad with a +.
+- Easy fixes in build mode: Undo, Remove (first tool in the tray), and "Remove what can't stay", which clears only the squares with a problem and keeps the rest.
+- Upgrades: the Upgrade tool raises one of your buildings to level 2 or 3. Each level adds 50% to what visitors pay and to the building's effect on happiness. Upgraded buildings grow and wear gold badges.
+- Monuments: pick your city (New York, Roma, Paris, London, Tokyo or Cairo) on the title screen or in the ⋯ menu, then build its two monuments. Players from those cities already have one. Stopping next to someone's monument pays sightseeing coins.
+- Passport ceremony: each new stamp pops out a 3D passport that opens and gets stamped with the city's name.
+- Sound effects for coins, dice, building, upgrades, stamps and achievements, plus coin fountains and confetti. Re-render the sounds with `python3 ios/tools/make_sfx.py <folder>`.
+- The app icon. Re-draw it with `swift ios/tools/make_icon.swift <out.png>`.
+- Progress saved on the device, including what you build.
+- Build mode (hammer button): pick a building from the tray and tap squares on your land. A live check marks border streets that don't meet a neighbour's street (red discs), streets cut off from the city (orange discs) and buildings without a street (red rings). It also shows the cost and how your block's happiness changes. Nothing changes for other players until you choose "Open to the city". Bus-line streets can't be built over.
+
+Debug builds accept launch arguments for screenshots: `-giroBuildDemo` opens build mode with a few squares painted, `-giroRollDemo` rolls a 5, `-giroMonumentDemo` builds two New York monuments and upgrades a shop, `-giroStampDemo` shows a new passport stamp, and `-giroSkin <id>` wears a skin.
 
 **Next:**
-- Build mode (painting buildings with the street rules).
+- Drag to paint several squares in build mode (today it's one tap per square).
 - Day/night cycle and pedestrians.
-- Sound.
+- Sound effects (dice, coins, duels).
 - StoreKit purchases.
 - A real multiplayer backend.
-- The app icon. Its slot is in `Assets.xcassets/AppIcon` and needs a full-bleed 1024×1024 PNG.
+- See [docs/ideas.md](docs/ideas.md) for the feature and monetisation brainstorm.
 
 ## Re-render the demo video
 

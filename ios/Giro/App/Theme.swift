@@ -65,22 +65,23 @@ extension Tile {
         case .plaza: 0xEDE6DA
         case .busStop: 0x14B8C8
         case .empty: 0xD8E8B8
+        default: 0xC9A227
         }
     }
 }
 
 extension CityMap.SquareKind {
-    /// Colour of the street tile in front of this kind of place.
+    /// Colour of the pad on a street square in front of this kind of place.
+    /// Everything that pays coins shares one colour so the streets stay calm.
     var tileColor: UInt32 {
         switch self {
         case .home: 0xF5B700
-        case .forSale: 0xA6D95B
-        case .shop, .cafe: 0xE5533D
-        case .office: 0x4A90D9
-        case .school: 0xB49CF0
-        case .park: 0x5DBB63
-        case .plaza: 0xFFFFFF
-        case .busStop: 0x14B8C8
+        case .forSale: 0xA9CF6E
+        case .shop, .cafe, .office, .school: 0xE89B3C
+        case .park: 0x6DBF70
+        case .plaza: 0xE36F5A
+        case .busStop: 0x3FB4C2
+        case .landmark: 0x9B6FD6
         }
     }
 
@@ -88,12 +89,11 @@ extension CityMap.SquareKind {
         switch self {
         case .home: "Your block: +1 roll"
         case .forSale: "For sale: buy land"
-        case .shop, .cafe: "Shop or café: coins"
-        case .office: "Office: payday"
-        case .school: "School: tutoring"
+        case .shop, .cafe, .office, .school: "Shop, café, office or school: coins"
         case .park: "Park: free roll"
         case .plaza: "Plaza: dice duel"
         case .busStop: "Bus stop: shortcut"
+        case .landmark: "Monument: sightseeing coins"
         }
     }
 }
