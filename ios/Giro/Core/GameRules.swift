@@ -147,7 +147,7 @@ public struct ShopItem: Identifiable, Sendable {
         ShopItem(id: "crate", title: "Mystery crate", detail: "3 to 25 rolls · odds below", price: .coins(150), rolls: 0, isCrate: true),
         ShopItem(id: "rolls25", title: "25 rolls", detail: "Starter pack", price: .money("$0.99"), rolls: 25),
         ShopItem(id: "rolls90", title: "90 rolls", detail: "Best value", price: .money("$2.99"), rolls: 90),
-        ShopItem(id: "pass", title: "Giro pass", detail: "+30 rolls a day for 30 days, golden skin", price: .money("$4.99"), rolls: 30, isPass: true),
+        ShopItem(id: "pass", title: "Rollabout pass", detail: "+30 rolls a day for 30 days, golden skin", price: .money("$4.99"), rolls: 30, isPass: true),
     ]
 
     /// Published odds for the mystery crate (App Store guideline 3.1.1).

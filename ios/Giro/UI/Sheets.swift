@@ -291,7 +291,7 @@ private struct SkinCard: View {
                     .buttonStyle(CardButtonStyle())
                     .disabled(model.player.coins < n)
             case .pass:
-                Button("With Giro pass") { model.showSkins = false; model.showShop = true }
+                Button("With Rollabout pass") { model.showSkins = false; model.showShop = true }
                     .buttonStyle(CardButtonStyle())
             case .free:
                 EmptyView()

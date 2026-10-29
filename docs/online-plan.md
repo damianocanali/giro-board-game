@@ -1,4 +1,4 @@
-# Giro online: accounts, social, market and money
+# Rollabout online: accounts, social, market and money
 
 This is a plan for the features that need a server: sign-in, a leaderboard, chat, and selling or bidding on plots. It ends with an honest check against Monopoly GO.
 
@@ -6,24 +6,24 @@ This is a plan for the features that need a server: sign-in, a leaderboard, chat
 
 Partly, yes. Some of what we already have is Monopoly GO's engine:
 
-| Already in Giro | Same as Monopoly GO? | Keep, change or drop |
+| Already in Rollabout | Same as Monopoly GO? | Keep, change or drop |
 |---|---|---|
 | Daily roll limit with a countdown | Yes (their "dice energy") | **Keep, but make it generous.** It paces the game and it's what brings people back. |
 | Bet multiplier (×2, ×3, ×5 rolls per throw) | Yes, exactly | **Drop it.** It is a gambling mechanic that makes people burn bought rolls faster. It's the clearest copy. |
 | Mystery crate with random rolls | Yes (their sticker packs) | **Drop it, or make it free-only.** Paid random boxes are under legal pressure in several countries. |
 | Selling rolls for money | Yes | **Keep, but small.** Rolls should never be the main thing we sell. |
-| Building your own block freely | No: in Monopoly GO you only pay to "upgrade" fixed landmarks | Giro's own identity. |
-| The city is made of other players' real blocks | No | Giro's own identity, and the strongest idea. |
+| Building your own block freely | No: in Monopoly GO you only pay to "upgrade" fixed landmarks | Rollabout's own identity. |
+| The city is made of other players' real blocks | No | Rollabout's own identity, and the strongest idea. |
 | Passport stamps from exploring | Only loosely like their sticker albums | Ours, and players love it. Grow it. |
-| Shutdowns, heists and attacking other players | Monopoly GO's core loop | **Never add these.** Giro is about visiting, not raiding. |
+| Shutdowns, heists and attacking other players | Monopoly GO's core loop | **Never add these.** Rollabout is about visiting, not raiding. |
 
-**Direction:** make Giro a cosy city builder that you explore with dice. People come back to see who visited their block, to collect stamps, to build something beautiful and to take part in seasonal events. They don't come back to gamble or to get revenge.
+**Direction:** make Rollabout a cosy city builder that you explore with dice. People come back to see who visited their block, to collect stamps, to build something beautiful and to take part in seasonal events. They don't come back to gamble or to get revenge.
 
 ## What players can buy with real money
 
 Rule: **sell looks, comfort and seasons, never power over other players.** Coins and land can only be earned in play, never bought. That keeps the shared city fair and stops real-money trading of plots.
 
-1. **Giro Pass, monthly (about $4.99).** +10 rolls a day, a monthly skin, a passport cover, and double event tokens. This should become the main source of income.
+1. **Rollabout Pass, monthly (about $4.99).** +10 rolls a day, a monthly skin, a passport cover, and double event tokens. This should become the main source of income.
 2. **Holiday packs ($1.99 to $3.99).** These are built now as a demo. Each one has a skin, decorations for your block and some rolls. The event's free reward stays free for everyone.
 3. **Cosmetics:** pawn and die skins, **passport covers and stamp ink colours** (players love the passport), building façade themes, monument variants (a golden Eiffel Tower, a Statue of Liberty at night).
 4. **Season track, every 8 weeks:** a free lane and a paid lane of rewards. Most rewards are cosmetic, and a few are rolls.
@@ -88,7 +88,7 @@ The market works like this:
 2. Sign in with Apple, cloud save and Game Center leaderboards.
 3. Real shared city: other players' blocks and visits become real.
 4. Postcards, reactions and the guestbook.
-5. Giro Pass and holiday packs with real StoreKit purchases.
+5. Rollabout Pass and holiday packs with real StoreKit purchases.
 6. Plot market with bids.
 7. Clubs, then friends-only chat with full moderation.
 

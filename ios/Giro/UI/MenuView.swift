@@ -9,8 +9,10 @@ struct MenuView: View {
         VStack(spacing: 0) {
             Spacer()
             VStack(spacing: 6) {
-                Text("Giro")
-                    .font(Theme.display(84))
+                Text("Rollabout")
+                    .font(Theme.display(68))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
                     .accessibilityAddTraits(.isHeader)
                     .foregroundStyle(Theme.ink)
                     .shadow(color: Theme.sheet.opacity(0.9), radius: 0, y: 4)

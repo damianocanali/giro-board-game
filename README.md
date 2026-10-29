@@ -1,6 +1,6 @@
-# Giro
+# Rollabout
 
-**The city is the board.** Giro is a 3D dice game set in one shared city. Players around the world each own a block of it. You roll a die and drive your pawn through other players' blocks, and each street square does whatever the building beside it does. When other players stop at your block, you earn coins, and coins buy more land.
+**The city is the board.** Rollabout is a 3D dice game set in one shared city. Players around the world each own a block of it. You roll a die and drive your pawn through other players' blocks, and each street square does whatever the building beside it does. When other players stop at your block, you earn coins, and coins buy more land.
 
 It combines two earlier prototypes, **Mondo Dado** (a dice board that branches and grows) and **Città** (a shared city with streets that must connect). Both are kept in `reference/`.
 
@@ -42,13 +42,13 @@ You can also open `prototype/index.html` straight in a browser.
   - Missions pay rolls, and there's a weekly city-wide goal.
 - **Shop (demo, nothing is charged):**
   - Roll packs, paid with coins or with money.
-  - A Giro pass.
+  - A Rollabout pass.
   - A mystery crate, with its odds printed as App Store guideline 3.1.1 requires for randomized items.
 
 ## Repo layout
 
 ```
-prototype/index.html          the Giro prototype (everything in one file)
+prototype/index.html          the Rollabout prototype (everything in one file)
 reference/mondo-dado-3d.html  earlier prototype: branching dice world, shop, build-a-branch
 reference/citta-3d.html       earlier prototype: shared city sim, needs, buy land, street rules
 tools/video/                  scripts that render the 30s demo video from the prototype
@@ -80,6 +80,8 @@ ios/Tests/             rule tests (the board matches the web prototype square fo
 ```
 
 **Run it:** open `ios/Giro.xcodeproj`, choose your team under Signing & Capabilities (bundle id `com.damianocanali.giro`), and run on an iPhone or a simulator.
+
+The game was first called Giro, so folders, the Xcode project, Swift types and the bundle id still use that name. Players only ever see Rollabout.
 
 **CI:** `.github/workflows/ios.yml` runs the rule tests on Linux and builds the app for the iOS Simulator on a macOS runner on every push to `ios/`.
 
