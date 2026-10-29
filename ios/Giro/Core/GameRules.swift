@@ -168,6 +168,7 @@ public struct PlayerState: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case coins, rolls, multiplier, position, heading, stamps, progress, claimed, goldenPawn
         case lastRefill, visitsToday, earnedToday, busRides, ownedSkins, skinID, homeCity, eventTokens, packs, outfit
+        case items, pet, foodRollsToday, freeSnackTaken
     }
 
     /// Reads any older save: missing fields keep their defaults.
@@ -193,6 +194,10 @@ public struct PlayerState: Codable, Equatable, Sendable {
         ownedSkins = get(.ownedSkins, [Skin.classic.id])
         skinID = get(.skinID, Skin.classic.id)
         outfit = get(.outfit, Outfit.starter)
+        items = get(.items, [])
+        pet = get(.pet, nil)
+        foodRollsToday = get(.foodRollsToday, 0)
+        freeSnackTaken = get(.freeSnackTaken, false)
         ownedSkins.insert(Skin.classic.id)
         if goldenPawn { ownedSkins.insert(Skin.gold.id) }
         if !ownedSkins.contains(skinID) { skinID = Skin.classic.id }
@@ -222,6 +227,13 @@ public struct PlayerState: Codable, Equatable, Sendable {
     public var packs: Set<String> = []
     /// Clothes and shoes the character is wearing.
     public var outfit = Outfit.starter
+    /// Clothes, shoes and pets bought in stores (by item id).
+    public var items: Set<String> = []
+    /// The pet walking with you (item id).
+    public var pet: String?
+    /// Rolls eaten from food today, and whether today's free café snack is gone.
+    public var foodRollsToday = 0
+    public var freeSnackTaken = false
 
     /// Add an event token. Returns true when this one reaches the goal and unlocks the reward skin.
     @discardableResult
@@ -252,6 +264,7 @@ public struct PlayerState: Codable, Equatable, Sendable {
         rolls += add
         lastRefill = now
         progress = [:]; claimed = []; visitsToday = 0; earnedToday = 0
+        foodRollsToday = 0; freeSnackTaken = false
         return add
     }
 

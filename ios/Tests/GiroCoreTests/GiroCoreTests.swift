@@ -130,6 +130,58 @@ final class EconomyTests: XCTestCase {
         XCTAssertEqual(q.outfit, .starter, "an old save starts in the starter outfit")
     }
 
+    func testStores() throws {
+        // Every shop and café is a store with something on the shelves; houses aren't.
+        XCTAssertEqual(StoreKind.of(.cafe, at: Cell(3, 4)), .cafe)
+        XCTAssertNil(StoreKind.of(.house, at: Cell(3, 4)))
+        XCTAssertEqual(Set((0..<40).compactMap { StoreKind.of(.shop, at: Cell($0, $0 * 3)) }).count, 4)
+        for k in StoreKind.allCases { XCTAssertFalse(k.items.isEmpty, "\(k) has stock") }
+        XCTAssertEqual(Set(StoreItem.catalog.map(\.id)).count, StoreItem.catalog.count, "ids are unique")
+
+        var p = PlayerState()
+        p.coins = 1000
+        let hoodie = try XCTUnwrap(StoreItem.named("hoodie-blue")), dress = try XCTUnwrap(StoreItem.named("dress-pink"))
+        let jeans = try XCTUnwrap(StoreItem.named("jeans")), dog = try XCTUnwrap(StoreItem.named("pet-dog"))
+        XCTAssertEqual(p.buy(hoodie), .ok)
+        XCTAssertTrue(p.isWearing(hoodie))
+        XCTAssertEqual(p.buy(hoodie), .alreadyOwned)
+        XCTAssertEqual(p.buy(jeans), .ok)
+        XCTAssertEqual(p.buy(dress), .ok)
+        XCTAssertEqual(p.outfit.bottom, .none, "a dress takes the jeans off")
+        p.wear(jeans)
+        XCTAssertEqual(p.outfit.top, .none, "jeans take the dress off")
+        XCTAssertEqual(p.coins, 1000 - 260 - 200 - 340)
+        XCTAssertEqual(p.buy(dog), .tooExpensive)
+
+        // Selling pays half and takes the item off.
+        XCTAssertEqual(p.sell(jeans), 100)
+        XCTAssertFalse(p.owns(jeans))
+        XCTAssertEqual(p.outfit.bottom, .none)
+        XCTAssertNil(p.sell(jeans))
+
+        // Food gives rolls, up to a daily cap; the free café snack counts towards it.
+        p.coins = 5000
+        let rolls = p.rolls
+        XCTAssertTrue(p.takeFreeSnack())
+        XCTAssertFalse(p.takeFreeSnack())
+        let picnic = try XCTUnwrap(StoreItem.named("picnic"))
+        XCTAssertEqual(p.buy(picnic), .ok)
+        XCTAssertEqual(p.buy(picnic), .full)
+        XCTAssertEqual(p.rolls, rolls + 5)
+        XCTAssertNil(p.sell(picnic), "food can't be sold")
+
+        // Pets walk with you until sent home; a new day resets food.
+        XCTAssertEqual(p.buy(dog), .ok)
+        XCTAssertEqual(p.pet, dog.id)
+        p.takeOff(dog)
+        XCTAssertNil(p.pet)
+        p.lastRefill = Date().addingTimeInterval(-3 * 86400)
+        p.refillIfNewDay(now: Date())
+        XCTAssertEqual(p.foodRollsLeft, StoreItem.dailyFoodRolls)
+        XCTAssertFalse(p.freeSnackTaken)
+        XCTAssertEqual(try JSONDecoder().decode(PlayerState.self, from: JSONEncoder().encode(p)), p)
+    }
+
     func testOutfit() throws {
         // A dress hides any bottom; other players' sample outfits are stable and always valid.
         XCTAssertEqual(Outfit(top: .dress, bottom: .trousers).normalized.bottom, .none)

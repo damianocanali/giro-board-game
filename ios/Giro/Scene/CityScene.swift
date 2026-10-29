@@ -51,6 +51,9 @@ final class CityScene {
     var onTapSale: ((Int) -> Void)?
     /// Build mode: a square of the city was tapped.
     var onTapCell: ((Cell) -> Void)?
+    /// Outside build mode: a square of the city was tapped (to walk into a store).
+    var onTapPlace: ((Cell) -> Void)?
+    private var pet: Entity?
 
     static let cell: Float = 2
     static let streetTop: Float = 0.22
@@ -1077,6 +1080,75 @@ final class CityScene {
         }
     }
 
+    // MARK: Pet
+
+    /// The pet that walks with you, or nil to send it home.
+    func setPet(_ item: StoreItem?) {
+        pet?.removeFromParent()
+        pet = nil
+        guard let item, case .pet(let kind, let color) = item.thing else { return }
+        let e = makePet(kind, color: color)
+        e.position = petGoal()
+        world.addChild(e)
+        pet = e
+    }
+
+    /// Just behind the pawn and a little to its side.
+    private func petGoal() -> SIMD3<Float> {
+        pawn.position + pawn.orientation.act([0.22, 0, -0.32])
+    }
+
+    private func updatePet(_ dt: Float) {
+        guard let pet else { return }
+        let goal = petGoal()
+        let step = (goal - pet.position) * min(1, dt * 7)
+        pet.position += step
+        let flat = SIMD2<Float>(step.x, step.z)
+        if simd_length(flat) > 0.002 {
+            pet.orientation = simd_quatf(angle: atan2(flat.x, flat.y), axis: [0, 1, 0])
+            // A little trot while it catches up.
+            pet.position.y = goal.y + abs(sin(clock * 16)) * 0.04
+        }
+    }
+
+    /// Toy animals about half as tall as a person, facing +z.
+    private func makePet(_ kind: PetKind, color: UInt32) -> Entity {
+        let g = Entity()
+        let dark: UInt32 = 0x2B1A10
+        switch kind {
+        case .dog, .cat:
+            part(box(0.2, 0.16, 0.36, r: 0.07), color, [0, 0.2, 0], in: g)
+            for x: Float in [-0.06, 0.06] { for z: Float in [-0.12, 0.12] { part(box(0.06, 0.14, 0.06, r: 0.02), color, [x, 0.07, z], in: g) } }
+            part(sphere(0.12), color, [0, 0.33, 0.19], in: g)
+            for x: Float in [-0.05, 0.05] { part(sphere(0.022), dark, [x, 0.36, 0.3], in: g) }
+            if kind == .dog {
+                part(sphere(0.04), dark, [0, 0.31, 0.31], in: g)
+                for x: Float in [-0.11, 0.11] { part(box(0.05, 0.12, 0.08, r: 0.02), 0x8A5A3B, [x, 0.32, 0.17], in: g) }
+                let tail = part(box(0.04, 0.04, 0.14, r: 0.02), color, [0, 0.27, -0.21], in: g)
+                tail.orientation = simd_quatf(angle: 0.6, axis: [1, 0, 0])
+            } else {
+                for x: Float in [-0.07, 0.07] { part(cone(0.09, 0.045), color, [x, 0.46, 0.18], in: g) }
+                part(box(0.035, 0.24, 0.035, r: 0.017), color, [0, 0.33, -0.2], in: g)
+            }
+        case .bunny:
+            part(sphere(0.15), color, [0, 0.16, 0], in: g)
+            part(sphere(0.1), color, [0, 0.3, 0.12], in: g)
+            for x: Float in [-0.04, 0.04] {
+                part(box(0.04, 0.18, 0.03, r: 0.015), color, [x, 0.47, 0.1], in: g)
+                part(sphere(0.02), dark, [x, 0.33, 0.21], in: g)
+            }
+            part(sphere(0.05), 0xFFFFFF, [0, 0.16, -0.15], in: g)
+        case .duck:
+            let body = part(sphere(0.13), color, [0, 0.14, 0], in: g)
+            body.scale = [1, 0.85, 1.2]
+            part(sphere(0.09), color, [0, 0.3, 0.1], in: g)
+            part(box(0.08, 0.03, 0.08, r: 0.01), 0xF28C28, [0, 0.29, 0.2], in: g)
+            for x: Float in [-0.035, 0.035] { part(sphere(0.016), dark, [x, 0.33, 0.17], in: g) }
+        }
+        g.scale = [0.85, 0.85, 0.85]
+        return g
+    }
+
     // MARK: Camera
 
     func focusOnPawn() {
@@ -1128,7 +1200,7 @@ final class CityScene {
             if cur.name.hasPrefix("sale-"), let b = Int(cur.name.dropFirst(5)) { onTapSale?(b); return }
             e = cur.parent
         }
-        if isBuildMode, let c = cell(at: point) { onTapCell?(c) }
+        if let c = cell(at: point) { if isBuildMode { onTapCell?(c) } else { onTapPlace?(c) } }
     }
 
     private func update(dt: Float) {
@@ -1148,6 +1220,7 @@ final class CityScene {
             e.position.y = 0.75 + sin(clock * 5.5) * 0.1
         }
         updateCars(dt)
+        updatePet(dt)
         animateWeather(weatherRoot, center: target, dt: dt, clock: clock)
     }
 

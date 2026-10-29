@@ -75,6 +75,8 @@ final class GameModel {
     var feed: [String] = []
 
     var showShop = false
+    /// The store you are inside, if any.
+    var storeVisit: StoreVisit?
     /// The weather right now (changes every three hours).
     var weather = Weather.at(Date())
     /// The holiday event running now, if any.
@@ -121,6 +123,13 @@ final class GameModel {
             player.ownedSkins.insert(id); player.skinID = Skin.named(id).id
         }
         showSkins = UserDefaults.standard.bool(forKey: "giroShowSkins")
+        // `-giroPet <item id>` walks a pet, `-giroStore <kind>` opens a store of that kind (for screenshots).
+        if let id = UserDefaults.standard.string(forKey: "giroPet"), StoreItem.named(id) != nil {
+            player.items.insert(id); player.pet = id
+        }
+        if let k = UserDefaults.standard.string(forKey: "giroStore").flatMap(StoreKind.init(rawValue:)) {
+            storeVisit = StoreVisit(cell: Cell(0, 0), kind: k, owner: "Yuki's", city: "Sapporo")
+        }
         // `-giroOutfit <n>` dresses you in a sample outfit.
         if UserDefaults.standard.object(forKey: "giroOutfit") != nil {
             player.outfit = .sample(UserDefaults.standard.integer(forKey: "giroOutfit"))
@@ -333,6 +342,10 @@ final class GameModel {
             let what = place.isMonument ? "Sightseeing at the \(place.name)" : place == .cafe ? "Coffee at \(o.name)'s café" : place == .office ? "Payday at \(o.name)'s office"
                 : place == .school ? "Tutoring at \(o.name)'s school" : "Shopping at \(o.name)'s shop"
             showToast("\(what) in \(o.city)", "+\(amount) coins" + (weather == .rain && !place.isMonument ? " · rain bonus" : ""))
+            if let v = store(facing: c) {
+                try? await Task.sleep(for: .seconds(1.1))
+                storeVisit = v
+            }
         case .freeRoll(let r, let b):
             player.rolls += r
             scene?.pop(text: "+\(r) roll\(r > 1 ? "s" : "")", at: c, color: 0x5DBB63)
@@ -793,7 +806,7 @@ final class GameModel {
 
     // MARK: Persistence
 
-    private func save() {
+    func save() {
         var tiles: [Int: [String]] = [:]
         for b in map.myBlocks {
             let o = CityMap.blockOrigin(b)

@@ -28,6 +28,14 @@ struct ContentView: View {
                     BuildPanel(model: model)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
+                    if let v = model.nearbyStore {
+                        Button { model.enterNearbyStore() } label: {
+                            Label("Go into \(v.owner == "Your" ? "your" : v.owner) \(v.kind.name.lowercased())", systemImage: "door.left.hand.open")
+                                .font(Theme.body(15, .bold))
+                        }
+                        .buttonStyle(CardButtonStyle())
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                     RollDock(model: model)
                 }
             }
@@ -67,10 +75,12 @@ struct ContentView: View {
         .animation(.spring(duration: 0.3), value: model.rolledValue)
         .animation(.spring(duration: 0.3), value: model.forkChoices)
         .animation(.spring(duration: 0.3), value: model.isBuilding)
+        .animation(.spring(duration: 0.3), value: model.nearbyStore)
         .animation(.easeInOut(duration: 0.4), value: model.showMenu)
         .sheet(isPresented: $model.showShop) { ShopSheet(model: model).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $model.showCityPicker) { CityPickerSheet(model: model).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $model.showSkins) { SkinsSheet(model: model).presentationDetents([.medium, .large]) }
+        .sheet(item: $model.storeVisit) { v in StoreSheet(model: model, visit: v).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $model.showMissions) { MissionsSheet(model: model).presentationDetents([.large]) }
         .task { model.start() }
     }

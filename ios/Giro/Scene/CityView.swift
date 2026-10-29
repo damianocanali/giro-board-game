@@ -18,6 +18,8 @@ struct CityView: UIViewRepresentable {
             Task { await model.offerSaleFromSign(b) }
         }
         scene.onTapCell = { [weak model] c in model?.paint(c) }
+        scene.onTapPlace = { [weak model] c in model?.tapPlace(c) }
+        scene.setPet(model.player.petItem)
         model.scene = scene
         if model.showMenu { scene.setShowcase(true) }
         scene.setWeather(model.weather)
