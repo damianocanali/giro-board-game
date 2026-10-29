@@ -18,6 +18,10 @@ final class CityScene {
     private let popRoot: Entity
     private let issueRoot: Entity
     private let gridRoot = Entity()
+    private let weatherRoot = Entity()
+    private let decorRoot = Entity()
+    private var sunLight: DirectionalLight?
+    private var holiday: Holiday?
     private(set) var isBuildMode = false
     private let cameraAnchor: AnchorEntity
     private let camera: PerspectiveCamera
@@ -35,8 +39,8 @@ final class CityScene {
     // Camera rig (orbit around a target that can follow the pawn)
     var theta: Float = -0.8
     var phi: Float = 0.92
-    private var distance: Float = 26
-    var goalDistance: Float = 26
+    private var distance: Float = 22
+    var goalDistance: Float = 22
     private var target = SIMD3<Float>(0, 0, 0)
     private var goalTarget = SIMD3<Float>(0, 0, 0)
     var followPawn = true
@@ -50,6 +54,15 @@ final class CityScene {
 
     static let cell: Float = 2
     static let streetTop: Float = 0.22
+    /// Width of the raised sidewalk along each street edge, and how far it sits above the road.
+    static let sidewalk: Float = 0.4
+    static let curbRise: Float = 0.08
+    static var walkTop: Float { streetTop + curbRise }
+    /// Half the road tile; a sidewalk's centre line sits `walkInset` in from the tile edge.
+    static let tileHalf: Float = 0.92
+    static var walkInset: Float { tileHalf - sidewalk / 2 }
+    /// Distance from the street's centre line to the middle of each driving lane.
+    static var laneOffset: Float { (tileHalf - sidewalk) / 2 }
     static let blockTop: Float = 0.32
 
     static func position(_ c: Cell, y: Float = 0) -> SIMD3<Float> {
@@ -58,6 +71,7 @@ final class CityScene {
 
     private struct Car {
         var entity: Entity
+        var kind: CarKind
         var cell: Cell
         var dir: Dir
         var t: Float
@@ -87,13 +101,14 @@ final class CityScene {
         arView.renderOptions.insert(.disableCameraGrain)
 
         arView.scene.addAnchor(world)
-        [cityRoot, fxRoot, coinRoot, arrowRoot, trafficRoot, popRoot, issueRoot, gridRoot].forEach { world.addChild($0) }
+        [cityRoot, fxRoot, coinRoot, arrowRoot, trafficRoot, popRoot, issueRoot, gridRoot, weatherRoot, decorRoot].forEach { world.addChild($0) }
 
         camera.camera.fieldOfViewInDegrees = 42
         cameraAnchor.addChild(camera)
         arView.scene.addAnchor(cameraAnchor)
 
         let sun = DirectionalLight()
+        sunLight = sun
         sun.light.intensity = 2600
         sun.light.color = UIColor(hex: 0xFFF1DE)
         sun.shadow = DirectionalLightComponent.Shadow(maximumDistance: 70, depthBias: 3)
@@ -121,9 +136,9 @@ final class CityScene {
         buildCity()
         pawn = Entity()
         let tag = label("YOU", size: 0.32, fg: 0x4A2E1B, bg: Theme.youHex)
-        tag.position.y = 2.15
+        tag.position.y = 1.15
         pawn.addChild(tag)
-        pawn.position = Self.position(cell, y: Self.streetTop)
+        pawn.position = walkSpot(cell)
         pawn.orientation = yaw(heading)
         world.addChild(pawn)
         die = Entity()
@@ -131,19 +146,21 @@ final class CityScene {
         world.addChild(die)
         applySkin(skin)
         for c in pickups { addCoin(at: c) }
-        let offsets: [SIMD3<Float>] = [[0.4, 0, 0.4], [-0.4, 0, 0.4], [0.4, 0, -0.4], [-0.4, 0, -0.4], [0, 0, 0.5], [0.5, 0, 0]]
+        // Small nudges so players on the same square stand side by side on the sidewalk.
+        let offsets: [SIMD3<Float>] = [[0.22, 0, 0.22], [-0.22, 0, 0.22], [0.22, 0, -0.22], [-0.22, 0, -0.22], [0, 0, 0.28], [0.28, 0, 0]]
         for g in ghosts {
-            let e = makeCharacter(color: g.color, scale: 0.85, eyes: true)
-            let tag = label("\(g.name) · \(g.city)", size: 0.24, fg: 0x4A2E1B, bg: 0xFFF7EC)
-            tag.position.y = 1.75
+            let e = makeCharacter(color: g.color, scale: Self.ghostScale, eyes: true)
+            // The tag is a child of the scaled character, so scale it back up to stay readable.
+            let tag = label("\(g.name) · \(g.city)", size: 0.2 / Self.ghostScale, fg: 0x4A2E1B, bg: 0xFFF7EC)
+            tag.position.y = 1.9
             e.addChild(tag)
             let off = offsets[g.id % offsets.count]
             ghostOffsets[g.id] = off
-            e.position = Self.position(g.cell, y: Self.streetTop) + off
+            e.position = walkSpot(g.cell) + off
             world.addChild(e)
             ghostEntities[g.id] = e
         }
-        spawnCars(8)
+        spawnCars(max(12, min(24, map.roadCells.count / 10)))
         target = pawn.position
         goalTarget = target
     }
@@ -151,7 +168,7 @@ final class CityScene {
     func rebuildAll(map: CityMap, pawnAt cell: Cell) {
         self.map = map
         buildCity()
-        pawn.position = Self.position(cell, y: Self.streetTop)
+        pawn.position = walkSpot(cell)
     }
 
     /// After buying land: rebuild that block, every street tile (their colours depend on ownership) and the plot markers.
@@ -175,6 +192,7 @@ final class CityScene {
             if on { e.components.set(OpacityComponent(opacity: 0.22)) } else { e.components.remove(OpacityComponent.self) }
         }
         if on { fxRoot.components.set(OpacityComponent(opacity: 0.4)) } else { fxRoot.components.remove(OpacityComponent.self) }
+        decorRoot.isEnabled = !on
         refreshGrid()
         if !on { respawnCars() }
     }
@@ -335,12 +353,30 @@ final class CityScene {
     }
 
     func placePawn(at c: Cell, heading: Dir) {
-        pawn.position = Self.position(c, y: Self.streetTop)
+        pawn.position = walkSpot(c)
         pawn.orientation = yaw(heading)
     }
 
     func placeGhost(_ id: Int, at c: Cell) {
-        ghostEntities[id]?.position = Self.position(c, y: Self.streetTop) + (ghostOffsets[id] ?? .zero)
+        ghostEntities[id]?.position = walkSpot(c) + (ghostOffsets[id] ?? .zero)
+    }
+
+    static let pawnScale: Float = 0.5
+    static let ghostScale: Float = 0.42
+
+    /// Where people stand on a street square: on the sidewalk in front of the building it faces,
+    /// or on a sidewalk corner at a crossing. Falls back to the middle of the road.
+    func walkSpot(_ c: Cell) -> SIMD3<Float> {
+        let base = Self.position(c, y: Self.walkTop)
+        if let f = map.frontage(of: c) {
+            return base + SIMD3<Float>(Float(f.side.dx), 0, Float(f.side.dy)) * Self.walkInset
+        }
+        for (dx, dy) in [(1, 1), (-1, 1), (1, -1), (-1, -1)] {
+            if let t = map.tile(Cell(c.x + dx, c.y + dy)), t != .road {
+                return base + SIMD3<Float>(Float(dx), 0, Float(dy)) * Self.walkInset
+            }
+        }
+        return Self.position(c, y: Self.streetTop)
     }
 
     private func respawnCars() {
@@ -458,9 +494,12 @@ final class CityScene {
         if t == .road {
             let crossing = map.isIntersection(c)
             part(box(1.84, Self.streetTop, 1.84, r: 0.08), crossing ? Theme.crossingHex : Theme.streetHex, [0, Self.streetTop / 2, 0], in: g)
-            // Squares with an effect get a small coloured pad instead of a fully coloured tile.
-            if !crossing, let k = map.squareKind(map.frontage(of: c)) {
-                part(box(1.0, 0.04, 1.0, r: 0.02), k.tileColor, [0, Self.streetTop + 0.01, 0], in: g)
+            buildSidewalks(c, into: g)
+            // Squares with an effect get a coloured paving slab on the sidewalk, where the pawn stops.
+            if !crossing, let f = map.frontage(of: c), let k = map.squareKind(f) {
+                let along = f.side.dx == 0
+                let p = SIMD3<Float>(Float(f.side.dx), 0, Float(f.side.dy)) * Self.walkInset + [0, Self.walkTop + 0.005, 0]
+                part(box(along ? 1.1 : Self.sidewalk - 0.06, 0.03, along ? Self.sidewalk - 0.06 : 1.1, r: 0.01), k.tileColor, p, in: g)
             }
             if isBuildMode && map.ownership(of: c) != .mine { g.components.set(OpacityComponent(opacity: 0.22)) }
         } else {
@@ -468,6 +507,29 @@ final class CityScene {
         }
         cityRoot.addChild(g)
         cellEntities[c] = g
+    }
+
+    /// A raised sidewalk along every edge that faces a building, plus corner squares where two streets meet,
+    /// so the sidewalks of neighbouring squares join up. Straight streets get a dashed centre line.
+    private func buildSidewalks(_ c: Cell, into g: Entity) {
+        let w = Self.sidewalk, h = Self.curbRise, y = Self.streetTop + h / 2, inset = Self.walkInset
+        var open: [Dir: Bool] = [:]
+        for d in Dir.optionOrder { open[d] = map.tile(c.moved(d)).map { $0 == .road } ?? false }
+        for d in Dir.optionOrder where open[d] == false {
+            let full = 2 * Self.tileHalf
+            part(box(d.dx == 0 ? full : w, h, d.dx == 0 ? w : full, r: 0.02), Theme.sidewalkHex,
+                 [Float(d.dx) * inset, y, Float(d.dy) * inset], in: g)
+        }
+        for (dx, dy) in [(1, 1), (-1, 1), (1, -1), (-1, -1)] where open[Dir(dx, 0)] == true && open[Dir(0, dy)] == true {
+            part(box(w, h, w, r: 0.02), Theme.sidewalkHex, [Float(dx) * inset, y, Float(dy) * inset], in: g)
+        }
+        let eastWest = open[.east] == true && open[.west] == true && open[.north] == false && open[.south] == false
+        let northSouth = open[.north] == true && open[.south] == true && open[.east] == false && open[.west] == false
+        guard eastWest || northSouth else { return }
+        for s: Float in [-0.5, 0.5] {
+            let p = SIMD3<Float>(eastWest ? s : 0, Self.streetTop + 0.005, northSouth ? s : 0)
+            part(box(eastWest ? 0.4 : 0.05, 0.01, eastWest ? 0.05 : 0.4), Theme.laneMarkHex, p, in: g)
+        }
     }
 
     private func buildBlockCell(_ c: Cell, tile t: Tile, into g: Entity) {
@@ -645,7 +707,7 @@ final class CityScene {
     /// Dress the pawn and the die in a skin. The pawn and die entities stay the same, only their looks change.
     func applySkin(_ skin: Skin) {
         pawn.findEntity(named: "look")?.removeFromParent()
-        let look = makeCharacter(color: skin.pawn, scale: 1.25, eyes: true)
+        let look = makeCharacter(color: skin.pawn, scale: Self.pawnScale, eyes: true)
         look.name = "look"
         addHat(skin.hat, color: skin.hatColor, to: look)
         pawn.addChild(look)
@@ -671,6 +733,16 @@ final class CityScene {
             part(box(0.56, 0.04, 0.56, r: 0.02), color, [0, 1.34, 0], in: g)
             part(box(0.36, 0.34, 0.36, r: 0.05), color, [0, 1.53, 0], in: g)
             part(box(0.37, 0.06, 0.37, r: 0.02), 0xE5533D, [0, 1.39, 0], in: g)
+        case .witch:
+            part(cylinder(0.04, 0.42), color, [0, 1.34, 0], in: g)
+            let hat = part(cone(0.6, 0.24), color, [0, 1.66, 0], in: g)
+            hat.orientation = simd_quatf(angle: 0.18, axis: [1, 0, 0])
+            part(cylinder(0.06, 0.25), 0xF28C28, [0, 1.39, 0], in: g)
+        case .santa:
+            part(cylinder(0.12, 0.31), 0xFFFFFF, [0, 1.3, 0], in: g)
+            let hat = part(cone(0.5, 0.27), color, [0, 1.6, 0], in: g)
+            hat.orientation = simd_quatf(angle: -0.3, axis: [1, 0, 0])
+            part(sphere(0.08), 0xFFFFFF, [0, 1.82, -0.14], in: g)
         case .flower:
             let c: SIMD3<Float> = [0.17, 1.33, 0.14]
             part(sphere(0.06), 0xF5B700, c, in: g)
@@ -762,9 +834,9 @@ final class CityScene {
     }
 
     func hopPawn(to c: Cell) async {
-        let from = pawn.position, to = Self.position(c, y: Self.streetTop)
+        let from = pawn.position, to = walkSpot(c)
         let rot = simd_quatf(angle: atan2(to.x - from.x, to.z - from.z), axis: [0, 1, 0])
-        let mid = (from + to) / 2 + [0, 0.75, 0]
+        let mid = (from + to) / 2 + [0, 0.45, 0]
         await animate(pawn, to: Transform(scale: pawn.scale, rotation: rot, translation: mid), duration: 0.11, timing: .easeOut)
         await animate(pawn, to: Transform(scale: pawn.scale, rotation: rot, translation: to), duration: 0.11, timing: .easeIn)
     }
@@ -778,20 +850,20 @@ final class CityScene {
             let from = bus.position
             let rot = simd_quatf(angle: atan2(to.x - from.x, to.z - from.z), axis: [0, 1, 0])
             bus.move(to: Transform(scale: .one, rotation: rot, translation: to), relativeTo: world, duration: 0.09, timingFunction: .linear)
-            pawn.move(to: Transform(scale: pawn.scale, rotation: rot, translation: to + [0, 0.75, 0]), relativeTo: world, duration: 0.09, timingFunction: .linear)
+            pawn.move(to: Transform(scale: pawn.scale, rotation: rot, translation: to + [0, 0.8, 0]), relativeTo: world, duration: 0.09, timingFunction: .linear)
             try? await Task.sleep(for: .milliseconds(90))
         }
         bus.removeFromParent()
-        let end = Self.position(path.last ?? Cell(0, 0), y: Self.streetTop)
+        let end = walkSpot(path.last ?? Cell(0, 0))
         await animate(pawn, to: Transform(scale: pawn.scale, rotation: pawn.orientation, translation: end), duration: 0.2, timing: .easeIn)
     }
 
     func hopGhost(_ id: Int, to c: Cell) async {
         guard let e = ghostEntities[id] else { return }
         let off = ghostOffsets[id] ?? .zero
-        let from = e.position, to = Self.position(c, y: Self.streetTop) + off
+        let from = e.position, to = walkSpot(c) + off
         let rot = simd_quatf(angle: atan2(to.x - from.x, to.z - from.z), axis: [0, 1, 0])
-        await animate(e, to: Transform(scale: e.scale, rotation: rot, translation: (from + to) / 2 + [0, 0.55, 0]), duration: 0.085, timing: .easeOut)
+        await animate(e, to: Transform(scale: e.scale, rotation: rot, translation: (from + to) / 2 + [0, 0.35, 0]), duration: 0.085, timing: .easeOut)
         await animate(e, to: Transform(scale: e.scale, rotation: rot, translation: to), duration: 0.085, timing: .easeIn)
     }
 
@@ -811,11 +883,11 @@ final class CityScene {
         for (i, d) in dirs.enumerated() {
             let holder = Entity()
             holder.name = "fork-\(i)"
-            let arrow = ModelEntity(mesh: cone(0.9, 0.42), materials: [unlit(colors[i % colors.count])])
+            let arrow = ModelEntity(mesh: cone(0.7, 0.32), materials: [unlit(colors[i % colors.count])])
             arrow.orientation = simd_quatf(angle: -.pi / 2, axis: [0, 0, 1])
             arrow.components.set(DynamicLightShadowComponent(castsShadow: false))
             holder.addChild(arrow)
-            holder.position = Self.position(c, y: 0.9) + SIMD3<Float>(Float(d.dx), 0, Float(d.dy)) * 1.3
+            holder.position = Self.position(c, y: 0.75) + SIMD3<Float>(Float(d.dx), 0, Float(d.dy)) * 1.2
             holder.orientation = simd_quatf(angle: atan2(-Float(d.dy), Float(d.dx)), axis: [0, 1, 0])
             holder.generateCollisionShapes(recursive: true)
             arrowRoot.addChild(holder)
@@ -828,8 +900,8 @@ final class CityScene {
 
     func addCoin(at c: Cell) {
         guard coinEntities[c] == nil else { return }
-        let e = ModelEntity(mesh: cylinder(0.08, 0.32), materials: [SimpleMaterial(color: UIColor(hex: 0xF5C542), roughness: 0.3, isMetallic: true)])
-        e.position = Self.position(c, y: 0.95)
+        let e = ModelEntity(mesh: cylinder(0.06, 0.2), materials: [SimpleMaterial(color: UIColor(hex: 0xF5C542), roughness: 0.3, isMetallic: true)])
+        e.position = walkSpot(c) + [0, 0.65, 0]
         coinRoot.addChild(e)
         coinEntities[c] = e
     }
@@ -854,24 +926,95 @@ final class CityScene {
 
     // MARK: Traffic
 
+    /// The kinds of traffic, roughly in how often they appear. Speeds are in world units per second.
+    private enum CarKind: CaseIterable {
+        case sedan, hatchback, taxi, van, scooter, bus, truck, police, iceCream
+
+        static let mix: [CarKind] = [.sedan, .hatchback, .sedan, .taxi, .scooter, .van, .hatchback, .bus, .sedan, .truck, .taxi, .police, .scooter, .iceCream]
+
+        var speed: ClosedRange<Float> {
+            switch self {
+            case .scooter: 1.8...2.3
+            case .bus, .truck: 0.9...1.2
+            case .iceCream: 0.7...0.9
+            case .police: 1.9...2.2
+            default: 1.3...1.8
+            }
+        }
+    }
+
     private func spawnCars(_ n: Int) {
-        let colors: [UInt32] = [0xE5533D, 0xFFFFFF, 0x4A90D9, 0xF5C542, 0x6B4A9E, 0x5DBB63, 0xB8784A]
         let roads = map.roadCells
+        guard !roads.isEmpty else { return }
         for i in 0..<n {
-            let g = Entity()
-            part(box(0.46, 0.26, 0.9, r: 0.08), colors[i % colors.count], [0, 0.2, 0], in: g)
-            part(box(0.4, 0.2, 0.48, r: 0.06), 0xCFE0EE, [0, 0.42, -0.05], in: g)
+            let kind = CarKind.mix[i % CarKind.mix.count]
+            let g = makeCar(kind, variant: i)
             trafficRoot.addChild(g)
             let c = roads[(i * 37 + 11) % roads.count]
             let dir = map.options(at: c, heading: .east).first ?? .east
-            cars.append(Car(entity: g, cell: c, dir: dir, t: Float.random(in: 0..<1), speed: Float.random(in: 1.2...1.9)))
+            cars.append(Car(entity: g, kind: kind, cell: c, dir: dir, t: Float.random(in: 0..<1), speed: Float.random(in: kind.speed)))
         }
+    }
+
+    /// Toy vehicles built from rounded boxes, all narrow enough for one lane. Models face +z.
+    private func makeCar(_ kind: CarKind, variant i: Int) -> Entity {
+        let paints: [UInt32] = [0xE5533D, 0xFFFFFF, 0x4A90D9, 0x6B4A9E, 0x5DBB63, 0xB8784A, 0x2F3E4E]
+        let paint = paints[i % paints.count]
+        let glass: UInt32 = 0xCFE0EE, tyre: UInt32 = 0x2B2B2B
+        let g = Entity()
+        func wheels(_ w: Float, _ zs: [Float]) {
+            for z in zs { for x in [-w / 2, w / 2] { part(box(0.06, 0.13, 0.13, r: 0.05), tyre, [x, 0.07, z], in: g) } }
+        }
+        switch kind {
+        case .sedan, .taxi, .police:
+            let body: UInt32 = kind == .taxi ? 0xF5C542 : kind == .police ? 0x2F4A7A : paint
+            part(box(0.36, 0.16, 0.74, r: 0.06), body, [0, 0.15, 0], in: g)
+            part(box(0.32, 0.14, 0.4, r: 0.05), kind == .police ? 0xFFFFFF : glass, [0, 0.3, -0.04], in: g)
+            if kind == .taxi { part(box(0.14, 0.06, 0.08, r: 0.02), 0xFFFFFF, [0, 0.4, -0.04], in: g) }
+            if kind == .police {
+                part(box(0.07, 0.05, 0.07, r: 0.02), 0xE5533D, [-0.06, 0.4, -0.04], in: g)
+                part(box(0.07, 0.05, 0.07, r: 0.02), 0x4A90D9, [0.06, 0.4, -0.04], in: g)
+            }
+            wheels(0.36, [-0.24, 0.24])
+        case .hatchback:
+            part(box(0.34, 0.16, 0.58, r: 0.07), paint, [0, 0.15, 0], in: g)
+            part(box(0.3, 0.15, 0.36, r: 0.06), glass, [0, 0.3, -0.06], in: g)
+            wheels(0.34, [-0.18, 0.18])
+        case .van:
+            part(box(0.38, 0.38, 0.8, r: 0.06), 0xFFFFFF, [0, 0.26, -0.02], in: g)
+            part(box(0.34, 0.14, 0.06, r: 0.02), glass, [0, 0.34, 0.39], in: g)
+            part(box(0.39, 0.08, 0.5, r: 0.02), paint, [0, 0.24, -0.12], in: g)
+            wheels(0.38, [-0.26, 0.26])
+        case .bus:
+            part(box(0.4, 0.42, 1.3, r: 0.08), 0xE5533D, [0, 0.29, 0], in: g)
+            part(box(0.41, 0.12, 1.2, r: 0.03), glass, [0, 0.38, 0], in: g)
+            part(box(0.41, 0.03, 1.3, r: 0.01), 0xFFFFFF, [0, 0.5, 0], in: g)
+            wheels(0.4, [-0.42, 0.42])
+        case .truck:
+            part(box(0.38, 0.3, 0.3, r: 0.06), paint, [0, 0.23, 0.42], in: g)
+            part(box(0.34, 0.1, 0.05, r: 0.02), glass, [0, 0.3, 0.57], in: g)
+            part(box(0.4, 0.4, 0.74, r: 0.04), 0xD9CBB6, [0, 0.3, -0.14], in: g)
+            wheels(0.4, [-0.38, 0.0, 0.42])
+        case .scooter:
+            part(box(0.12, 0.1, 0.4, r: 0.04), paint, [0, 0.14, 0], in: g)
+            part(box(0.03, 0.22, 0.03), 0x555555, [0, 0.27, 0.16], in: g)
+            part(sphere(0.07), 0xF1C8A0, [0, 0.4, -0.04], in: g)
+            part(sphere(0.075), paint == 0xFFFFFF ? 0x2F3E4E : 0xFFFFFF, [0, 0.47, -0.04], in: g)
+            for z: Float in [-0.15, 0.15] { part(box(0.04, 0.12, 0.12, r: 0.05), tyre, [0, 0.06, z], in: g) }
+        case .iceCream:
+            part(box(0.38, 0.36, 0.78, r: 0.08), 0xFBD7E3, [0, 0.25, 0], in: g)
+            part(box(0.39, 0.1, 0.34, r: 0.03), glass, [0, 0.3, 0.12], in: g)
+            part(cone(0.16, 0.07), 0xF2C27B, [0, 0.5, -0.18], in: g)
+            part(sphere(0.07), 0xFFFFFF, [0, 0.6, -0.18], in: g)
+            wheels(0.38, [-0.25, 0.25])
+        }
+        return g
     }
 
     private func updateCars(_ dt: Float) {
         for i in cars.indices {
             var car = cars[i]
-            car.t += dt * car.speed / Self.cell * 2
+            car.t += dt * car.speed / Self.cell
             while car.t >= 1 {
                 car.t -= 1
                 car.cell = car.cell.moved(car.dir)
@@ -881,7 +1024,8 @@ final class CityScene {
                 }
             }
             let a = Self.position(car.cell, y: Self.streetTop), b = Self.position(car.cell.moved(car.dir), y: Self.streetTop)
-            let lane = SIMD3<Float>(-Float(car.dir.dy), 0, Float(car.dir.dx)) * 0.5
+            // Drive on the right-hand lane.
+            let lane = SIMD3<Float>(-Float(car.dir.dy), 0, Float(car.dir.dx)) * Self.laneOffset
             car.entity.position = a + (b - a) * car.t + lane
             car.entity.orientation = yaw(car.dir)
             cars[i] = car
@@ -890,7 +1034,7 @@ final class CityScene {
 
     // MARK: Camera
 
-    func focusOnPawn() { followPawn = true; goalDistance = 26 }
+    func focusOnPawn() { followPawn = true; goalDistance = 22 }
     func focusOnMyBlocks() {
         followPawn = false
         let bs = map.myBlocks
@@ -921,7 +1065,7 @@ final class CityScene {
     }
 
     func zoom(by scale: CGFloat) {
-        goalDistance = max(10, min(130, goalDistance / Float(scale)))
+        goalDistance = max(6, min(130, goalDistance / Float(scale)))
     }
 
     func handleTap(at point: CGPoint) {
@@ -948,9 +1092,24 @@ final class CityScene {
             e.orientation = simd_quatf(angle: clock * 2.2 + Float(i), axis: [0, 1, 0]) * simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
         }
         for e in arrowRoot.children {
-            e.position.y = 0.9 + sin(clock * 5.5) * 0.12
+            e.position.y = 0.75 + sin(clock * 5.5) * 0.1
         }
         updateCars(dt)
+        animateWeather(weatherRoot, center: target, dt: dt, clock: clock)
+    }
+
+    // MARK: Weather and holidays
+
+    func setWeather(_ w: Weather) {
+        let look = Self.sky(w)
+        arView.environment.background = .color(UIColor(hex: look.sky))
+        sunLight?.light.intensity = look.sun
+        makeWeather(w, into: weatherRoot)
+    }
+
+    func setHoliday(_ h: Holiday?, ownPack: Bool) {
+        holiday = h
+        makeDecorations(h, ownPack: ownPack, map: map, into: decorRoot)
     }
 }
 

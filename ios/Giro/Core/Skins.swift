@@ -7,9 +7,13 @@ public struct Skin: Identifiable, Equatable, Sendable {
         case coins(Int)
         /// Comes with the Giro pass.
         case pass
+        /// Earned by collecting tokens in a holiday event (holiday id).
+        case event(String)
+        /// Comes with a holiday pack (holiday id).
+        case pack(String)
     }
 
-    public enum Hat: String, Sendable { case none, cap, crown, topHat, flower }
+    public enum Hat: String, Sendable { case none, cap, crown, topHat, flower, witch, santa }
 
     public var id: String
     public var name: String
@@ -38,6 +42,18 @@ public struct Skin: Identifiable, Equatable, Sendable {
         Skin(id: "midnight", name: "Midnight", price: .coins(900),
              pawn: 0x34406B, die: 0x2B3352, pips: 0xFFFFFF, onePip: 0xF5B700, hat: .topHat, hatColor: 0x1A1F33),
         gold,
+        Skin(id: "pumpkin", name: "Pumpkin", price: .event("halloween"),
+             pawn: 0xF28C28, die: 0xFFE2C2, pips: 0x2B1A10, onePip: 0x6B4A9E, hat: .flower, hatColor: 0x3E9D4E),
+        Skin(id: "witch", name: "Witch", price: .pack("halloween"),
+             pawn: 0x6B4A9E, die: 0x2B2238, pips: 0xF28C28, onePip: 0x8BE36B, hat: .witch, hatColor: 0x1E1A24),
+        Skin(id: "snowman", name: "Snowman", price: .event("winter"),
+             pawn: 0xF4F7FB, die: 0xDCEBF7, pips: 0x2F5D8A, onePip: 0xF28C28, hat: .topHat, hatColor: 0x1A1F33),
+        Skin(id: "santa", name: "Santa", price: .pack("winter"),
+             pawn: 0xD9483B, die: 0xFFFFFF, pips: 0xD9483B, onePip: 0x3E9D4E, hat: .santa, hatColor: 0xD9483B),
+        Skin(id: "blossom", name: "Blossom", price: .event("spring"),
+             pawn: 0xF7B6CF, die: 0xFFF0F5, pips: 0xC2185B, onePip: 0x5DBB63, hat: .flower, hatColor: 0xFFFFFF),
+        Skin(id: "sakura", name: "Sakura", price: .pack("spring"),
+             pawn: 0xFFD1E0, die: 0x3C3C46, pips: 0xFFB7CF, onePip: 0xFFFFFF, hat: .flower, hatColor: 0xE85D8E),
     ]
 
     public static func named(_ id: String) -> Skin { all.first { $0.id == id } ?? classic }

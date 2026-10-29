@@ -41,8 +41,10 @@ enum Theme {
     static let skyHex: UInt32 = 0xF6D2A6
     static let groundHex: UInt32 = 0xEFC795
     static let blockTopHex: UInt32 = 0xF4E4C6
-    static let streetHex: UInt32 = 0xF0DDBB
-    static let crossingHex: UInt32 = 0xF7EBD3
+    static let streetHex: UInt32 = 0xCDB596
+    static let crossingHex: UInt32 = 0xD8C3A5
+    static let sidewalkHex: UInt32 = 0xF7EBD3
+    static let laneMarkHex: UInt32 = 0xFFF7EC
     static let youHex: UInt32 = 0xF5B700
 
     static func display(_ size: CGFloat) -> Font { .system(size: size, weight: .black, design: .rounded) }

@@ -20,6 +20,8 @@ struct CityView: UIViewRepresentable {
         scene.onTapCell = { [weak model] c in model?.paint(c) }
         model.scene = scene
         if model.showMenu { scene.setShowcase(true) }
+        scene.setWeather(model.weather)
+        scene.setHoliday(model.holiday, ownPack: model.holiday.map { model.player.packs.contains($0.id) } ?? false)
         context.coordinator.scene = scene
 
         let view = scene.arView

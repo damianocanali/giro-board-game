@@ -75,6 +75,10 @@ final class GameModel {
     var feed: [String] = []
 
     var showShop = false
+    /// The weather right now (changes every three hours).
+    var weather = Weather.at(Date())
+    /// The holiday event running now, if any.
+    var holiday = Holiday.active(at: Date())
     /// The title menu shown at launch.
     var showMenu = !ProcessInfo.processInfo.arguments.contains { ["-giroBuildDemo", "-giroRollDemo", "-giroMonumentDemo", "-giroStampDemo"].contains($0) }
     var hasSave: Bool { UserDefaults.standard.data(forKey: Self.saveKey) != nil }
@@ -117,6 +121,8 @@ final class GameModel {
             player.ownedSkins.insert(id); player.skinID = Skin.named(id).id
         }
         showSkins = UserDefaults.standard.bool(forKey: "giroShowSkins")
+        // `-giroWeather rain` (or sunny, cloudy, snow) fixes the weather.
+        if let f = UserDefaults.standard.string(forKey: "giroWeather").flatMap(Weather.init(rawValue:)) { weather = f }
         #endif
     }
 
@@ -190,6 +196,20 @@ final class GameModel {
 
     private func tick() {
         now = Date()
+        var w = Weather.at(now)
+        #if DEBUG
+        if let f = UserDefaults.standard.string(forKey: "giroWeather").flatMap(Weather.init(rawValue:)) { w = f }
+        #endif
+        if w != weather {
+            weather = w
+            scene?.setWeather(w)
+            if !isBusy { showToast("Weather: \(w.name)", w.effect, seconds: 3) }
+        }
+        let h = Holiday.active(at: now)
+        if h != holiday {
+            holiday = h
+            scene?.setHoliday(h, ownPack: h.map { player.packs.contains($0.id) } ?? false)
+        }
         if player.refillIfNewDay(now: now) > 0 {
             save()
             showToast("A new day in the city", "Your \(GameConfig.dailyRolls) free rolls are back.", seconds: 4)
@@ -271,6 +291,15 @@ final class GameModel {
             scene?.removeCoin(at: c)
             gain(GameConfig.streetCoinCoins * m, at: c)
             player.advance(.pickups)
+            if let h = holiday {
+                scene?.pop(text: "+1 \(h.tokenSymbol)", at: c.moved(player.heading), color: 0xFFE9A8)
+                if player.collectToken(for: h) {
+                    let skin = Skin.named(h.rewardSkin)
+                    sfx.play(.achievement)
+                    scene?.burst(at: c, count: 30, height: 2)
+                    showToast("\(h.name) reward: the \(skin.name) skin!", "Wear it from Skins in the ⋯ menu.", seconds: 4)
+                }
+            }
             dropCoin()
         }
         let bi = map.block(of: c)
@@ -285,7 +314,7 @@ final class GameModel {
 
     private func land() async {
         let c = player.position
-        switch Rules.landing(on: c, in: map, multiplier: player.multiplier) {
+        switch Rules.landing(on: c, in: map, multiplier: player.multiplier, weather: weather) {
         case .quiet:
             showToast("A quiet corner. Nothing happens.")
         case .home:
@@ -299,7 +328,7 @@ final class GameModel {
             let o = map.owners[b]
             let what = place.isMonument ? "Sightseeing at the \(place.name)" : place == .cafe ? "Coffee at \(o.name)'s café" : place == .office ? "Payday at \(o.name)'s office"
                 : place == .school ? "Tutoring at \(o.name)'s school" : "Shopping at \(o.name)'s shop"
-            showToast("\(what) in \(o.city)", "+\(amount) coins")
+            showToast("\(what) in \(o.city)", "+\(amount) coins" + (weather == .rain && !place.isMonument ? " · rain bonus" : ""))
         case .freeRoll(let r, let b):
             player.rolls += r
             scene?.pop(text: "+\(r) roll\(r > 1 ? "s" : "")", at: c, color: 0x5DBB63)
@@ -370,7 +399,7 @@ final class GameModel {
         guard var d = duel, d.result == nil else { return }
         let a = Int.random(in: 1...6), b = Int.random(in: 1...6)
         d.you = a; d.them = b
-        let r = Rules.duel(you: a, them: b, multiplier: player.multiplier)
+        let r = Rules.duel(you: a, them: b, multiplier: player.multiplier, weather: weather)
         d.result = r
         switch r {
         case .win(let n): gain(n, at: player.position); player.advance(.duel)
@@ -547,6 +576,19 @@ final class GameModel {
             if map.tile(c)?.isMonument == true { showToast("Monuments are already as grand as they get.") }
             else { showToast("Tap one of your buildings to upgrade it.") }
         }
+    }
+
+    // MARK: Holiday pack
+
+    /// Demo purchase of the running holiday's pack: its skin, decorations on your block and rolls.
+    func buyHolidayPack() {
+        guard let h = holiday, !player.packs.contains(h.id) else { return }
+        player.buyPack(h)
+        scene?.setHoliday(h, ownPack: true)
+        equipSkin(Skin.named(h.packSkin))
+        sfx.play(.achievement)
+        showToast("\(h.name) pack unlocked", "Demo purchase, nothing was charged. +\(h.packRolls) rolls and decorations on your block.", seconds: 3.5)
+        save()
     }
 
     // MARK: Home city

@@ -6,6 +6,25 @@ struct ShopSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if let h = model.holiday {
+                    Section("\(h.name) · \(h.daysLeft(from: model.now)) days left") {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(h.name) pack").font(Theme.body(16, .bold))
+                                Text("\(Skin.named(h.packSkin).name) skin, decorations on your block, +\(h.packRolls) rolls")
+                                    .font(Theme.body(13)).foregroundStyle(Theme.ink2)
+                            }
+                            Spacer()
+                            if model.player.packs.contains(h.id) {
+                                Text("Owned").font(Theme.body(13, .bold)).foregroundStyle(Theme.good)
+                            } else {
+                                Button(h.packPrice) { model.buyHolidayPack() }.buttonStyle(CardButtonStyle())
+                            }
+                        }
+                        Text("Free for everyone: collect \(h.goal) \(h.tokenSymbol) from street coins to unlock the \(Skin.named(h.rewardSkin).name) skin. You have \(min(model.player.eventTokens[h.id] ?? 0, h.goal)).")
+                            .font(Theme.body(13)).foregroundStyle(Theme.ink2)
+                    }
+                }
                 Section {
                     ForEach(ShopItem.catalog) { item in
                         HStack {
@@ -70,6 +89,14 @@ struct MissionsSheet: View {
                     }
                 }
 
+                Section("Your land") {
+                    let value = model.map.myBlocks.reduce(0) { $0 + model.map.plotValue($1) }
+                    HStack {
+                        Image(systemName: "map.fill").foregroundStyle(Theme.button)
+                        Text("\(model.map.myBlocks.count) plot\(model.map.myBlocks.count == 1 ? "" : "s"), worth about \(value.formatted()) coins")
+                            .font(Theme.body(15, .bold))
+                    }
+                }
                 Section("Passport · \(model.player.stamps.count) of \(model.map.ownership.filter { $0 == .other }.count) cities") {
                     let cities = model.map.ownership.indices.filter { model.map.ownership[$0] == .other }
                     FlowLayout(spacing: 6) {
@@ -268,6 +295,19 @@ private struct SkinCard: View {
                     .buttonStyle(CardButtonStyle())
             case .free:
                 EmptyView()
+            case .event(let id):
+                let h = Holiday.all.first { $0.id == id }
+                Text(h.map { "\(min(model.player.eventTokens[$0.id] ?? 0, $0.goal))/\($0.goal) \($0.tokenSymbol) in \($0.name)" } ?? "Event")
+                    .font(Theme.body(12, .bold)).foregroundStyle(Theme.ink2).frame(minHeight: 32)
+                    .multilineTextAlignment(.center)
+            case .pack(let id):
+                let h = Holiday.all.first { $0.id == id }
+                if let h, model.holiday?.id == id {
+                    Button("\(h.name) pack") { model.showSkins = false; model.showShop = true }
+                        .buttonStyle(CardButtonStyle())
+                } else {
+                    Text("\(h?.name ?? "Holiday") pack").font(Theme.body(12, .bold)).foregroundStyle(Theme.ink2).frame(minHeight: 32)
+                }
             }
         }
     }
@@ -291,6 +331,7 @@ private struct SkinCard: View {
         case .crown: Image(systemName: "crown.fill").foregroundStyle(c).font(.system(size: 18))
         case .topHat: Rectangle().fill(c).frame(width: 20, height: 16)
         case .flower: Image(systemName: "camera.macro").foregroundStyle(c).font(.system(size: 14))
+        case .witch, .santa: Image(systemName: "triangle.fill").foregroundStyle(c).font(.system(size: 18))
         }
     }
 }

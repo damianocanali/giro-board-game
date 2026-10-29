@@ -14,6 +14,7 @@ struct ContentView: View {
             } else {
             VStack(spacing: 10) {
                 TopBar(model: model)
+                if !model.isBuilding { StatusRow(model: model) }
                 if let t = model.toast {
                     ToastView(toast: t)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -120,6 +121,34 @@ private struct TopBar: View {
                 .accessibilityLabel("Shop")
         }
         .padding(.top, 4)
+    }
+}
+
+/// Weather and the running holiday event, under the top bar.
+private struct StatusRow: View {
+    let model: GameModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button { model.showToast("Weather: \(model.weather.name)", model.weather.effect, seconds: 3) } label: {
+                Pill {
+                    Image(systemName: model.weather.symbol).symbolRenderingMode(.multicolor)
+                    Text(model.weather.name).font(Theme.body(13, .bold))
+                }
+            }
+            .accessibilityLabel("Weather \(model.weather.name). \(model.weather.effect)")
+            if let h = model.holiday {
+                Button { model.showShop = true } label: {
+                    Pill {
+                        Text(h.tokenSymbol)
+                        Text("\(h.name) \(min(model.player.eventTokens[h.id] ?? 0, h.goal))/\(h.goal)").font(Theme.body(13, .bold))
+                        Text("· \(h.daysLeft(from: model.now))d").font(Theme.body(12)).foregroundStyle(Theme.ink2)
+                    }
+                }
+                .accessibilityLabel("\(h.name) event: \(model.player.eventTokens[h.id] ?? 0) of \(h.goal) collected")
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
 

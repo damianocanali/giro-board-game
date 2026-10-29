@@ -30,16 +30,17 @@ public enum Landing: Equatable, Sendable {
 
 public enum Rules {
     /// Resolve a landing on street square `c` with bet multiplier `m`.
-    public static func landing(on c: Cell, in map: CityMap, multiplier m: Int) -> Landing {
+    public static func landing(on c: Cell, in map: CityMap, multiplier m: Int, weather: Weather = .cloudy) -> Landing {
         guard let f = map.frontage(of: c) else { return .quiet }
+        let indoors = weather == .rain ? 2 : 1
         switch map.squareKind(f) {
         case .home: return .home
         case .forSale: return .forSale(block: f.block)
-        case .shop: return .coins(amount: GameConfig.shopCoins * m, place: .shop, block: f.block)
-        case .cafe: return .coins(amount: GameConfig.shopCoins * m, place: .cafe, block: f.block)
+        case .shop: return .coins(amount: GameConfig.shopCoins * m * indoors, place: .shop, block: f.block)
+        case .cafe: return .coins(amount: GameConfig.shopCoins * m * indoors, place: .cafe, block: f.block)
         case .office: return .coins(amount: GameConfig.officeCoins * m, place: .office, block: f.block)
         case .school: return .coins(amount: GameConfig.schoolCoins * m, place: .school, block: f.block)
-        case .park: return .freeRoll(rolls: m, block: f.block)
+        case .park: return .freeRoll(rolls: m + (weather == .sunny ? 1 : 0), block: f.block)
         case .plaza: return .duel(block: f.block)
         case .busStop: return .bus
         case .landmark: return .coins(amount: GameConfig.landmarkCoins * m, place: f.tile, block: f.block)
@@ -48,9 +49,10 @@ public enum Rules {
     }
 
     public enum DuelResult: Equatable, Sendable { case win(Int), tie(Int), lose }
-    public static func duel(you: Int, them: Int, multiplier m: Int) -> DuelResult {
-        if you > them { return .win(GameConfig.duelWinCoins * m) }
-        if you == them { return .tie(GameConfig.duelTieCoins * m) }
+    public static func duel(you: Int, them: Int, multiplier m: Int, weather: Weather = .cloudy) -> DuelResult {
+        let snow = weather == .snow ? 2 : 1
+        if you > them { return .win(GameConfig.duelWinCoins * m * snow) }
+        if you == them { return .tie(GameConfig.duelTieCoins * m * snow) }
         return .lose
     }
 
@@ -165,7 +167,7 @@ public struct ShopItem: Identifiable, Sendable {
 public struct PlayerState: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case coins, rolls, multiplier, position, heading, stamps, progress, claimed, goldenPawn
-        case lastRefill, visitsToday, earnedToday, busRides, ownedSkins, skinID, homeCity
+        case lastRefill, visitsToday, earnedToday, busRides, ownedSkins, skinID, homeCity, eventTokens, packs
     }
 
     /// Reads any older save: missing fields keep their defaults.
@@ -186,6 +188,8 @@ public struct PlayerState: Codable, Equatable, Sendable {
         earnedToday = get(.earnedToday, 0)
         busRides = get(.busRides, 0)
         homeCity = get(.homeCity, nil)
+        eventTokens = get(.eventTokens, [:])
+        packs = get(.packs, [])
         ownedSkins = get(.ownedSkins, [Skin.classic.id])
         skinID = get(.skinID, Skin.classic.id)
         ownedSkins.insert(Skin.classic.id)
@@ -211,6 +215,26 @@ public struct PlayerState: Codable, Equatable, Sendable {
     public var skinID: String = Skin.classic.id
     /// The city you play for. Decides which monuments you can build.
     public var homeCity: String?
+    /// Event tokens collected per holiday id.
+    public var eventTokens: [String: Int] = [:]
+    /// Holiday packs bought (by holiday id).
+    public var packs: Set<String> = []
+
+    /// Add an event token. Returns true when this one reaches the goal and unlocks the reward skin.
+    @discardableResult
+    public mutating func collectToken(for h: Holiday) -> Bool {
+        let n = (eventTokens[h.id] ?? 0) + 1
+        eventTokens[h.id] = n
+        guard n == h.goal else { return false }
+        ownedSkins.insert(h.rewardSkin)
+        return true
+    }
+
+    public mutating func buyPack(_ h: Holiday) {
+        packs.insert(h.id)
+        ownedSkins.insert(h.packSkin)
+        rolls += h.packRolls
+    }
 
     public init() {}
 

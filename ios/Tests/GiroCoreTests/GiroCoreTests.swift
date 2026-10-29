@@ -324,3 +324,50 @@ final class MonumentAndUpgradeTests: XCTestCase {
         XCTAssertEqual(m.upgrade(Cell(0, 0), coins: &poor), .notYourBuilding)
     }
 }
+
+final class SeasonTests: XCTestCase {
+    private var cal: Calendar { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(identifier: "UTC")!; return c }
+    private func date(_ m: Int, _ d: Int, _ h: Int = 12, year: Int = 2026) -> Date { cal.date(from: DateComponents(year: year, month: m, day: d, hour: h))! }
+
+    func testWeatherIsStableWithinASlotAndNeverSnowsInSummer() {
+        XCTAssertEqual(Weather.at(date(7, 1, 9), calendar: cal), Weather.at(date(7, 1, 11), calendar: cal))
+        for d in 1...31 { for h in stride(from: 0, to: 24, by: 3) { XCTAssertNotEqual(Weather.at(date(7, d, h), calendar: cal), .snow) } }
+        XCTAssertEqual(Weather.nextChange(after: date(7, 1, 10), calendar: cal), date(7, 1, 12))
+    }
+
+    func testWeatherChangesTheRules() {
+        let m = CityMap.example()
+        let shopStreet = m.roadCells.first { m.squareKind(m.frontage(of: $0)) == .shop }!
+        guard case .coins(let dry, _, _) = Rules.landing(on: shopStreet, in: m, multiplier: 1, weather: .sunny),
+              case .coins(let wet, _, _) = Rules.landing(on: shopStreet, in: m, multiplier: 1, weather: .rain) else { return XCTFail() }
+        XCTAssertEqual(wet, dry * 2)
+        XCTAssertEqual(Rules.duel(you: 6, them: 1, multiplier: 1, weather: .snow), .win(GameConfig.duelWinCoins * 2))
+    }
+
+    func testHolidayWindowsAndEventReward() {
+        XCTAssertEqual(Holiday.active(at: date(10, 28), calendar: cal)?.id, "halloween")
+        XCTAssertEqual(Holiday.active(at: date(1, 3), calendar: cal)?.id, "winter")
+        XCTAssertNil(Holiday.active(at: date(7, 1), calendar: cal))
+        let h = Holiday.active(at: date(10, 28), calendar: cal)!
+        XCTAssertEqual(h.daysLeft(from: date(10, 28), calendar: cal), 6)
+        var p = PlayerState()
+        for _ in 1..<h.goal { XCTAssertFalse(p.collectToken(for: h)) }
+        XCTAssertTrue(p.collectToken(for: h))
+        XCTAssertTrue(p.ownedSkins.contains("pumpkin"))
+        p.buyPack(h)
+        XCTAssertTrue(p.ownedSkins.contains("witch"))
+    }
+
+    func testPlotValueRisesWithBuildingsAndUpgrades() {
+        var m = CityMap.example()
+        let home = CityMap.homeBlock
+        let before = m.plotValue(home)
+        let o = CityMap.blockOrigin(home)
+        let shop = (o.y..<(o.y + 6)).flatMap { y in (o.x..<(o.x + 6)).map { Cell($0, y) } }.first { m.tile($0) == .shop }!
+        var coins = 10_000
+        _ = m.upgrade(shop, coins: &coins)
+        XCTAssertGreaterThan(m.plotValue(home), before)
+        // The bare plot on the bus line is worth more than a bare plot in a corner would be on location alone.
+        XCTAssertGreaterThan(m.plotValue(11), 220)
+    }
+}
