@@ -131,7 +131,7 @@ final class CityScene {
     }
 
     /// Builds everything for the current game state.
-    func setup(map: CityMap, pawnAt cell: Cell, heading: Dir, skin: Skin, pickups: Set<Cell>, ghosts: [Ghost]) {
+    func setup(map: CityMap, pawnAt cell: Cell, heading: Dir, skin: Skin, outfit: Outfit, pickups: Set<Cell>, ghosts: [Ghost]) {
         self.map = map
         buildCity()
         pawn = Entity()
@@ -144,12 +144,12 @@ final class CityScene {
         die = Entity()
         die.isEnabled = false
         world.addChild(die)
-        applySkin(skin)
+        applySkin(skin, outfit: outfit)
         for c in pickups { addCoin(at: c) }
         // Small nudges so players on the same square stand side by side on the sidewalk.
         let offsets: [SIMD3<Float>] = [[0.22, 0, 0.22], [-0.22, 0, 0.22], [0.22, 0, -0.22], [-0.22, 0, -0.22], [0, 0, 0.28], [0.28, 0, 0]]
         for g in ghosts {
-            let e = makeCharacter(color: g.color, scale: Self.ghostScale, eyes: true)
+            let e = makeCharacter(color: g.color, outfit: .sample(g.id * 7 + g.block), scale: Self.ghostScale, eyes: true)
             // The tag is a child of the scaled character, so scale it back up to stay readable.
             let tag = label("\(g.name) · \(g.city)", size: 0.2 / Self.ghostScale, fg: 0x4A2E1B, bg: 0xFFF7EC)
             tag.position.y = 1.9
@@ -163,6 +163,12 @@ final class CityScene {
         spawnCars(max(12, min(24, map.roadCells.count / 10)))
         target = pawn.position
         goalTarget = target
+        #if DEBUG
+        // `-giroZoom <distance>` and `-giroTheta <radians>` frame the camera (for screenshots).
+        let z = UserDefaults.standard.float(forKey: "giroZoom")
+        if z > 0 { distance = z; goalDistance = z }
+        if UserDefaults.standard.object(forKey: "giroTheta") != nil { theta = UserDefaults.standard.float(forKey: "giroTheta") }
+        #endif
     }
 
     func rebuildAll(map: CityMap, pawnAt cell: Cell) {
@@ -687,15 +693,54 @@ final class CityScene {
 
     // MARK: Characters, die, labels
 
-    private func makeCharacter(color: UInt32, scale: Float, eyes: Bool) -> Entity {
+    /// A little person: legs, feet, torso, arms and a big head, about 1.4 tall before scaling, facing +z.
+    /// The skin colours the body; the outfit's clothes and shoes are drawn over it.
+    private func makeCharacter(color: UInt32, outfit: Outfit, scale: Float, eyes: Bool) -> Entity {
         let g = Entity()
-        let body = part(sphere(0.36), color, [0, 0.5, 0], in: g)
-        body.scale = [1, 1.25, 1]
+        let o = outfit.normalized
+        let topHex = o.top == .none ? color : o.topColor
+        let sleeves = o.top == .hoodie || o.top == .jacket
+
+        // Legs and feet.
+        let legHex = o.bottom == .trousers ? o.bottomColor : color
+        for x: Float in [-0.1, 0.1] {
+            part(box(0.13, 0.36, 0.14, r: 0.06), legHex, [x, 0.27, 0], in: g)
+            switch o.shoes {
+            case .none:
+                part(box(0.13, 0.08, 0.2, r: 0.04), color, [x, 0.05, 0.03], in: g)
+            case .sneakers:
+                part(box(0.15, 0.04, 0.23, r: 0.02), 0xFFFFFF, [x, 0.02, 0.03], in: g)
+                part(box(0.14, 0.07, 0.21, r: 0.035), o.shoeColor, [x, 0.07, 0.03], in: g)
+            case .boots:
+                part(box(0.15, 0.2, 0.22, r: 0.04), o.shoeColor, [x, 0.1, 0.03], in: g)
+            case .sandals:
+                part(box(0.14, 0.03, 0.22, r: 0.01), o.shoeColor, [x, 0.015, 0.03], in: g)
+                part(box(0.13, 0.06, 0.18, r: 0.03), color, [x, 0.06, 0.03], in: g)
+                part(box(0.145, 0.03, 0.04, r: 0.01), o.shoeColor, [x, 0.07, 0.06], in: g)
+            }
+        }
+        switch o.bottom {
+        case .shorts: part(box(0.36, 0.16, 0.2, r: 0.06), o.bottomColor, [0, 0.42, 0], in: g)
+        case .skirt: part(cone(0.26, 0.24), o.bottomColor, [0, 0.38, 0], in: g)
+        case .trousers: part(box(0.34, 0.1, 0.18, r: 0.05), o.bottomColor, [0, 0.45, 0], in: g)
+        case .none: break
+        }
+        if o.top == .dress { part(cone(0.34, 0.28), o.topColor, [0, 0.4, 0], in: g) }
+
+        // Torso and arms.
+        part(box(0.42, 0.42, 0.28, r: 0.12), topHex, [0, 0.66, 0], in: g)
+        if o.top == .jacket { part(box(0.08, 0.38, 0.02, r: 0.01), 0xFFFFFF, [0, 0.66, 0.14], in: g) }
+        if o.top == .hoodie { part(sphere(0.17), o.topColor, [0, 0.88, -0.12], in: g) }
+        for x: Float in [-0.27, 0.27] {
+            if o.top == .tee || o.top == .dress {
+                part(box(0.12, 0.13, 0.13, r: 0.05), o.topColor, [x, 0.79, 0], in: g)
+            }
+            part(box(0.1, 0.32, 0.11, r: 0.05), sleeves ? o.topColor : color, [x, 0.67, 0], in: g)
+            part(sphere(0.065), color, [x, 0.49, 0], in: g)
+        }
+
+        // Head.
         part(sphere(0.3), color, [0, 1.08, 0], in: g)
-        part(sphere(0.11), color, [-0.38, 0.55, 0], in: g)
-        part(sphere(0.11), color, [0.38, 0.55, 0], in: g)
-        part(sphere(0.12), color, [-0.16, 0.1, 0.05], in: g)
-        part(sphere(0.12), color, [0.16, 0.1, 0.05], in: g)
         if eyes {
             part(sphere(0.045), 0x2B1A10, [-0.1, 1.12, 0.27], in: g)
             part(sphere(0.045), 0x2B1A10, [0.1, 1.12, 0.27], in: g)
@@ -705,9 +750,9 @@ final class CityScene {
     }
 
     /// Dress the pawn and the die in a skin. The pawn and die entities stay the same, only their looks change.
-    func applySkin(_ skin: Skin) {
+    func applySkin(_ skin: Skin, outfit: Outfit) {
         pawn.findEntity(named: "look")?.removeFromParent()
-        let look = makeCharacter(color: skin.pawn, scale: Self.pawnScale, eyes: true)
+        let look = makeCharacter(color: skin.pawn, outfit: outfit, scale: Self.pawnScale, eyes: true)
         look.name = "look"
         addHat(skin.hat, color: skin.hatColor, to: look)
         pawn.addChild(look)
@@ -1034,7 +1079,15 @@ final class CityScene {
 
     // MARK: Camera
 
-    func focusOnPawn() { followPawn = true; goalDistance = 22 }
+    func focusOnPawn() {
+        followPawn = true
+        goalDistance = 22
+        #if DEBUG
+        // `-giroZoom <distance>` holds the camera closer (for screenshots).
+        let z = UserDefaults.standard.float(forKey: "giroZoom")
+        if z > 0 { goalDistance = z }
+        #endif
+    }
     func focusOnMyBlocks() {
         followPawn = false
         let bs = map.myBlocks

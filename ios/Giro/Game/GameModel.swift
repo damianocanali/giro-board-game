@@ -121,6 +121,10 @@ final class GameModel {
             player.ownedSkins.insert(id); player.skinID = Skin.named(id).id
         }
         showSkins = UserDefaults.standard.bool(forKey: "giroShowSkins")
+        // `-giroOutfit <n>` dresses you in a sample outfit.
+        if UserDefaults.standard.object(forKey: "giroOutfit") != nil {
+            player.outfit = .sample(UserDefaults.standard.integer(forKey: "giroOutfit"))
+        }
         // `-giroWeather rain` (or sunny, cloudy, snow) fixes the weather.
         if let f = UserDefaults.standard.string(forKey: "giroWeather").flatMap(Weather.init(rawValue:)) { weather = f }
         #endif
@@ -739,7 +743,7 @@ final class GameModel {
 
     func equipSkin(_ s: Skin) {
         player.equip(s)
-        scene?.applySkin(player.skin)
+        scene?.applySkin(player.skin, outfit: player.outfit)
         save()
     }
 
@@ -829,6 +833,6 @@ final class GameModel {
         map = CityMap.example()
         needs = Needs.of(map)
         scene?.rebuildAll(map: map, pawnAt: player.position)
-        scene?.applySkin(player.skin)
+        scene?.applySkin(player.skin, outfit: player.outfit)
     }
 }

@@ -11,7 +11,7 @@ struct CityView: UIViewRepresentable {
     func makeUIView(context: Context) -> ARView {
         let scene = CityScene(map: model.map)
         scene.setup(map: model.map, pawnAt: model.player.position, heading: model.player.heading,
-                    skin: model.player.skin, pickups: model.pickups, ghosts: model.ghosts)
+                    skin: model.player.skin, outfit: model.player.outfit, pickups: model.pickups, ghosts: model.ghosts)
         scene.onTapFork = { [weak model] i in model?.pickFork(i) }
         scene.onTapSale = { [weak model] b in
             guard let model, !model.isBusy, model.saleOffer == nil else { return }

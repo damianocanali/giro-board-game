@@ -167,7 +167,7 @@ public struct ShopItem: Identifiable, Sendable {
 public struct PlayerState: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case coins, rolls, multiplier, position, heading, stamps, progress, claimed, goldenPawn
-        case lastRefill, visitsToday, earnedToday, busRides, ownedSkins, skinID, homeCity, eventTokens, packs
+        case lastRefill, visitsToday, earnedToday, busRides, ownedSkins, skinID, homeCity, eventTokens, packs, outfit
     }
 
     /// Reads any older save: missing fields keep their defaults.
@@ -192,6 +192,7 @@ public struct PlayerState: Codable, Equatable, Sendable {
         packs = get(.packs, [])
         ownedSkins = get(.ownedSkins, [Skin.classic.id])
         skinID = get(.skinID, Skin.classic.id)
+        outfit = get(.outfit, Outfit.starter)
         ownedSkins.insert(Skin.classic.id)
         if goldenPawn { ownedSkins.insert(Skin.gold.id) }
         if !ownedSkins.contains(skinID) { skinID = Skin.classic.id }
@@ -219,6 +220,8 @@ public struct PlayerState: Codable, Equatable, Sendable {
     public var eventTokens: [String: Int] = [:]
     /// Holiday packs bought (by holiday id).
     public var packs: Set<String> = []
+    /// Clothes and shoes the character is wearing.
+    public var outfit = Outfit.starter
 
     /// Add an event token. Returns true when this one reaches the goal and unlocks the reward skin.
     @discardableResult

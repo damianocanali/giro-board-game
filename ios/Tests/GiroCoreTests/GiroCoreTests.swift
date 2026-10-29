@@ -127,6 +127,18 @@ final class EconomyTests: XCTestCase {
         XCTAssertEqual(q.rolls, 7)
         XCTAssertTrue(q.owns(Skin.gold))
         XCTAssertEqual(q.skinID, Skin.classic.id)
+        XCTAssertEqual(q.outfit, .starter, "an old save starts in the starter outfit")
+    }
+
+    func testOutfit() throws {
+        // A dress hides any bottom; other players' sample outfits are stable and always valid.
+        XCTAssertEqual(Outfit(top: .dress, bottom: .trousers).normalized.bottom, .none)
+        XCTAssertEqual(Outfit.sample(5), Outfit.sample(5))
+        for i in 0..<40 { let o = Outfit.sample(i); XCTAssertEqual(o, o.normalized) }
+        XCTAssertGreaterThan(Set((0..<20).map(Outfit.sample)).count, 5, "players don't all dress alike")
+        var p = PlayerState()
+        p.outfit = Outfit(top: .hoodie, topColor: 0x123456, shoes: .boots)
+        XCTAssertEqual(try JSONDecoder().decode(PlayerState.self, from: JSONEncoder().encode(p)).outfit, p.outfit)
     }
 
     func testMultiplierNeedsEnoughRolls() {
