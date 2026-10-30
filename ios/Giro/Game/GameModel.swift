@@ -234,7 +234,7 @@ final class GameModel {
 
     // MARK: Rolling
 
-    var canRoll: Bool { !isBusy && player.rolls >= player.multiplier }
+    var canRoll: Bool { !isBusy && player.rolls > 0 }
 
     func roll(forced: Int? = nil) async {
         guard !isBusy, let scene else { return }
@@ -265,12 +265,9 @@ final class GameModel {
             enter(next)
         }
         await land()
-        if player.rolls < player.multiplier { player.multiplier = 1 }
         isBusy = false
         save()
     }
-
-    func cycleMultiplier() { player.cycleMultiplier() }
 
     private func showRolled(_ v: Int) {
         rolledValue = v
@@ -299,10 +296,9 @@ final class GameModel {
 
     /// Called for every square the pawn enters (coins on the street, passport stamps).
     private func enter(_ c: Cell) {
-        let m = player.multiplier
         if pickups.remove(c) != nil {
             scene?.removeCoin(at: c)
-            gain(GameConfig.streetCoinCoins * m, at: c)
+            gain(GameConfig.streetCoinCoins, at: c)
             player.advance(.pickups)
             if let h = holiday {
                 scene?.pop(text: "+1 \(h.tokenSymbol)", at: c.moved(player.heading), color: 0xFFE9A8)
@@ -319,15 +315,15 @@ final class GameModel {
         if map.ownership[bi] == .other && !player.stamps.contains(bi) {
             player.stamps.insert(bi)
             player.advance(.stamps)
-            gain(GameConfig.stampCoins * m, at: nil)
-            let e = StampEvent(city: map.owners[bi].city, owner: map.owners[bi].name, coins: GameConfig.stampCoins * m, number: player.stamps.count)
+            gain(GameConfig.stampCoins, at: nil)
+            let e = StampEvent(city: map.owners[bi].city, owner: map.owners[bi].name, coins: GameConfig.stampCoins, number: player.stamps.count)
             if stampEvent == nil { stampEvent = e } else { stampQueue.append(e) }
         }
     }
 
     private func land() async {
         let c = player.position
-        switch Rules.landing(on: c, in: map, multiplier: player.multiplier, weather: weather) {
+        switch Rules.landing(on: c, in: map, weather: weather) {
         case .quiet:
             showToast("A quiet corner. Nothing happens.")
         case .home:
@@ -383,8 +379,8 @@ final class GameModel {
 
     private func busRide() async {
         guard let path = Rules.busRide(from: player.position, in: map), let scene else {
-            gain(2 * player.multiplier, at: player.position)
-            showToast("Bus stop, but no line here yet.", "+\(2 * player.multiplier) coins")
+            gain(2, at: player.position)
+            showToast("Bus stop, but no line here yet.", "+2 coins")
             return
         }
         showToast("All aboard: riding to the next stop")
@@ -416,7 +412,7 @@ final class GameModel {
         guard var d = duel, d.result == nil else { return }
         let a = Int.random(in: 1...6), b = Int.random(in: 1...6)
         d.you = a; d.them = b
-        let r = Rules.duel(you: a, them: b, multiplier: player.multiplier, weather: weather)
+        let r = Rules.duel(you: a, them: b, weather: weather)
         d.result = r
         switch r {
         case .win(let n): gain(n, at: player.position); player.advance(.duel)
@@ -721,15 +717,12 @@ final class GameModel {
     // MARK: Shop and missions
 
     func purchase(_ item: ShopItem) {
-        var n = item.rolls
+        let n = item.rolls
         if case .coins(let price) = item.price {
             guard player.coins >= price else { return }
             player.coins -= price
         }
-        if item.isCrate {
-            n = ShopItem.openCrate(roll: Double.random(in: 0..<1))
-            showToast("Mystery crate: \(n) rolls")
-        } else if case .money = item.price {
+        if case .money = item.price {
             showToast("Demo purchase: +\(n) rolls", "Nothing was charged.")
         } else {
             showToast("+\(n) rolls")

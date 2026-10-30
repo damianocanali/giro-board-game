@@ -39,7 +39,7 @@ struct ShopSheet: View {
                         }
                     }
                 } footer: {
-                    Text(ShopItem.crateOddsText + ". Demo store: nothing is charged.")
+                    Text("Demo store: nothing is charged.")
                 }
             }
             .scrollContentBackground(.hidden)

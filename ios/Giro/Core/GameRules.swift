@@ -7,7 +7,6 @@ public enum GameConfig {
     /// Free rolls each day. At local midnight your rolls top back up to this number.
     /// Rolls you buy or win stack above it and are never taken away.
     public static let dailyRolls = 30
-    public static let multipliers = [1, 2, 3, 5]
 
     public static let shopCoins = 8, officeCoins = 15, schoolCoins = 12, neighbourCoins = 3
     public static let duelWinCoins = 40, duelTieCoins = 10
@@ -29,30 +28,30 @@ public enum Landing: Equatable, Sendable {
 }
 
 public enum Rules {
-    /// Resolve a landing on street square `c` with bet multiplier `m`.
-    public static func landing(on c: Cell, in map: CityMap, multiplier m: Int, weather: Weather = .cloudy) -> Landing {
+    /// Resolve a landing on street square `c`.
+    public static func landing(on c: Cell, in map: CityMap, weather: Weather = .cloudy) -> Landing {
         guard let f = map.frontage(of: c) else { return .quiet }
         let indoors = weather == .rain ? 2 : 1
         switch map.squareKind(f) {
         case .home: return .home
         case .forSale: return .forSale(block: f.block)
-        case .shop: return .coins(amount: GameConfig.shopCoins * m * indoors, place: .shop, block: f.block)
-        case .cafe: return .coins(amount: GameConfig.shopCoins * m * indoors, place: .cafe, block: f.block)
-        case .office: return .coins(amount: GameConfig.officeCoins * m, place: .office, block: f.block)
-        case .school: return .coins(amount: GameConfig.schoolCoins * m, place: .school, block: f.block)
-        case .park: return .freeRoll(rolls: m + (weather == .sunny ? 1 : 0), block: f.block)
+        case .shop: return .coins(amount: GameConfig.shopCoins * indoors, place: .shop, block: f.block)
+        case .cafe: return .coins(amount: GameConfig.shopCoins * indoors, place: .cafe, block: f.block)
+        case .office: return .coins(amount: GameConfig.officeCoins, place: .office, block: f.block)
+        case .school: return .coins(amount: GameConfig.schoolCoins, place: .school, block: f.block)
+        case .park: return .freeRoll(rolls: 1 + (weather == .sunny ? 1 : 0), block: f.block)
         case .plaza: return .duel(block: f.block)
         case .busStop: return .bus
-        case .landmark: return .coins(amount: GameConfig.landmarkCoins * m, place: f.tile, block: f.block)
-        case nil: return .neighbours(amount: GameConfig.neighbourCoins * m, block: f.block)
+        case .landmark: return .coins(amount: GameConfig.landmarkCoins, place: f.tile, block: f.block)
+        case nil: return .neighbours(amount: GameConfig.neighbourCoins, block: f.block)
         }
     }
 
     public enum DuelResult: Equatable, Sendable { case win(Int), tie(Int), lose }
-    public static func duel(you: Int, them: Int, multiplier m: Int, weather: Weather = .cloudy) -> DuelResult {
+    public static func duel(you: Int, them: Int, weather: Weather = .cloudy) -> DuelResult {
         let snow = weather == .snow ? 2 : 1
-        if you > them { return .win(GameConfig.duelWinCoins * m * snow) }
-        if you == them { return .tie(GameConfig.duelTieCoins * m * snow) }
+        if you > them { return .win(GameConfig.duelWinCoins * snow) }
+        if you == them { return .tie(GameConfig.duelTieCoins * snow) }
         return .lose
     }
 
@@ -139,34 +138,21 @@ public struct ShopItem: Identifiable, Sendable {
     public var detail: String
     public var price: Price
     public var rolls: Int
-    public var isCrate = false
     public var isPass = false
 
     public static let catalog: [ShopItem] = [
         ShopItem(id: "rolls5", title: "5 rolls", detail: "Paid with coins", price: .coins(300), rolls: 5),
-        ShopItem(id: "crate", title: "Mystery crate", detail: "3 to 25 rolls · odds below", price: .coins(150), rolls: 0, isCrate: true),
         ShopItem(id: "rolls25", title: "25 rolls", detail: "Starter pack", price: .money("$0.99"), rolls: 25),
         ShopItem(id: "rolls90", title: "90 rolls", detail: "Best value", price: .money("$2.99"), rolls: 90),
         ShopItem(id: "pass", title: "Rollabout pass", detail: "+30 rolls a day for 30 days, golden skin", price: .money("$4.99"), rolls: 30, isPass: true),
     ]
-
-    /// Published odds for the mystery crate (App Store guideline 3.1.1).
-    public static let crateOdds: [(rolls: Int, chance: Double)] = [(3, 0.50), (6, 0.30), (12, 0.15), (25, 0.05)]
-    public static var crateOddsText: String {
-        "Mystery crate odds: " + crateOdds.map { "\($0.rolls) rolls \(Int($0.chance * 100))%" }.joined(separator: " · ")
-    }
-    public static func openCrate(roll r: Double) -> Int {
-        var acc = 0.0
-        for o in crateOdds { acc += o.chance; if r < acc { return o.rolls } }
-        return crateOdds.last!.rolls
-    }
 }
 
 // MARK: - Player state (persisted)
 
 public struct PlayerState: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
-        case coins, rolls, multiplier, position, heading, stamps, progress, claimed, goldenPawn
+        case coins, rolls, position, heading, stamps, progress, claimed, goldenPawn
         case lastRefill, visitsToday, earnedToday, busRides, ownedSkins, skinID, homeCity, eventTokens, packs, outfit
         case items, pet, foodRollsToday, freeSnackTaken
     }
@@ -177,7 +163,6 @@ public struct PlayerState: Codable, Equatable, Sendable {
         func get<T: Decodable>(_ k: CodingKeys, _ d: T) -> T { ((try? c.decodeIfPresent(T.self, forKey: k)) ?? nil) ?? d }
         coins = get(.coins, GameConfig.startingCoins)
         rolls = get(.rolls, GameConfig.startingRolls)
-        multiplier = get(.multiplier, 1)
         position = get(.position, Cell(12, 14))
         heading = get(.heading, .east)
         stamps = get(.stamps, [])
@@ -205,7 +190,6 @@ public struct PlayerState: Codable, Equatable, Sendable {
 
     public var coins: Int = GameConfig.startingCoins
     public var rolls: Int = GameConfig.startingRolls
-    public var multiplier: Int = 1
     public var position = Cell(12, 14)
     public var heading = Dir.east
     public var stamps: Set<Int> = []
@@ -294,20 +278,11 @@ public struct PlayerState: Codable, Equatable, Sendable {
         if owns(s) { skinID = s.id }
     }
 
-    /// Spend rolls for one throw. False if there are not enough.
+    /// Spend one roll for a throw. False if there are none left.
     public mutating func spendRoll() -> Bool {
-        guard rolls >= multiplier else { return false }
-        rolls -= multiplier
+        guard rolls > 0 else { return false }
+        rolls -= 1
         return true
-    }
-
-    public mutating func cycleMultiplier() {
-        let l = GameConfig.multipliers
-        let i = l.firstIndex(of: multiplier) ?? 0
-        for k in 1...l.count {
-            let m = l[(i + k) % l.count]
-            if m <= max(1, rolls) { multiplier = m; return }
-        }
     }
 
     public mutating func advance(_ k: Mission.Kind, by n: Int = 1) { progress[k, default: 0] += n }

@@ -77,14 +77,14 @@ The market works like this:
 
 ## What it needs technically
 
-- **Server:** Supabase. It gives a Postgres database, Sign in with Apple, row-level security and edge functions. Alternatively, CloudKit is cheaper but much harder for shared world state and a market.
+- **Server:** Firebase (decided). Firestore for the database, Firebase Auth with Sign in with Apple, security rules, and Cloud Functions for the economy and trades (needs the Blaze plan, with a budget alert). Supabase was ruled out because the free tier is full; CloudKit was ruled out because it has no server code to check trades.
 - **Server-authoritative economy:** coins, rolls, land and bids are decided on the server, never trusted from the phone. This also fixes the clock trick with daily rolls.
-- **Moderation:** a word filter in an edge function, plus a report table and a small admin page.
+- **Moderation:** a word filter in a Cloud Function, plus a report table and a small admin page.
 - **Purchases:** StoreKit 2, with receipts checked on the server, or RevenueCat on top.
 
 ## Suggested order
 
-1. **Decide:** drop the bet multiplier and the paid crate. This is a small change.
+1. ~~Drop the bet multiplier and the paid crate.~~ **Done:** every throw costs one roll and pays the flat amount; the crate is gone from the shop.
 2. Sign in with Apple, cloud save and Game Center leaderboards.
 3. Real shared city: other players' blocks and visits become real.
 4. Postcards, reactions and the guestbook.
@@ -94,6 +94,6 @@ The market works like this:
 
 ## Decisions needed from you
 
-- Drop the bet multiplier and the paid crate? **Recommended: yes.**
-- Supabase or CloudKit for the server? **Recommended: Supabase.**
+- ~~Drop the bet multiplier and the paid crate?~~ Done.
+- ~~Supabase or CloudKit for the server?~~ Firebase.
 - Minimum age: 13 and up, with no free chat for younger players? **Recommended: yes.**

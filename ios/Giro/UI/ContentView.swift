@@ -225,23 +225,10 @@ private struct RollDock: View {
 
     private var dock: some View {
         HStack(alignment: .bottom, spacing: 10) {
-            Button { model.cycleMultiplier() } label: {
-                VStack(spacing: 0) {
-                    Text("×\(model.player.multiplier)").font(Theme.display(22))
-                    Text("BET").font(Theme.body(10, .heavy)).foregroundStyle(Theme.ink2)
-                }
-                .foregroundStyle(Theme.ink)
-                .frame(width: 64, height: 64)
-                .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line, lineWidth: 2))
-            }
-            .accessibilityLabel("Bet multiplier \(model.player.multiplier)")
-            .disabled(model.isBusy)
-
             Button { Task { await model.roll() } } label: {
                 VStack(spacing: 2) {
                     Text("ROLL").font(Theme.display(30))
-                    Text(model.player.rolls < model.player.multiplier ? "Out of rolls" : "uses \(model.player.multiplier) roll\(model.player.multiplier > 1 ? "s" : "")")
+                    Text(model.player.rolls == 0 ? "Out of rolls" : "\(model.player.rolls) left")
                         .font(Theme.body(12, .bold)).opacity(0.85)
                 }
                 .foregroundStyle(Theme.ink)
@@ -338,7 +325,7 @@ private struct DuelCard: View {
     var body: some View {
         VStack(spacing: 14) {
             Text("Plaza duel").font(Theme.display(24))
-            Text("\(duel.opponent) from \(duel.city) challenges you. Highest die wins \(GameConfig.duelWinCoins * model.player.multiplier) coins. Losing costs nothing.")
+            Text("\(duel.opponent) from \(duel.city) challenges you. Highest die wins \(GameConfig.duelWinCoins) coins. Losing costs nothing.")
                 .font(Theme.body(15)).multilineTextAlignment(.center).foregroundStyle(Theme.ink2)
             HStack(spacing: 24) {
                 DieFace(value: duel.you, caption: "You", highlight: true)

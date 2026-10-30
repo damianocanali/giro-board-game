@@ -35,7 +35,7 @@ final class CityMapTests: XCTestCase {
         // Prototype: from home, roll 4, pick the first option at the fork -> lands on (16,14), the home block.
         let r = Rules.walk(from: Cell(12, 14), heading: .east, steps: 4, in: map) { _ in 0 }
         XCTAssertEqual(r.path.last, Cell(16, 14))
-        XCTAssertEqual(Rules.landing(on: Cell(16, 14), in: map, multiplier: 1), .home)
+        XCTAssertEqual(Rules.landing(on: Cell(16, 14), in: map), .home)
     }
 
     func testOwnBuildingsWinFrontage() {
@@ -63,14 +63,9 @@ final class CityMapTests: XCTestCase {
         XCTAssertTrue(m.buildIssues().unreachable.contains(Cell(12, 13)))
     }
 
-    func testLandingRewardsScaleWithMultiplier() {
-        // Find any street square facing another player's shop and check the payout scales.
+    func testShopLandingPaysFlatCoins() {
         let shopSquare = map.roadCells.first { map.squareKind(map.frontage(of: $0)) == .shop }!
-        guard case .coins(let a1, .shop, _) = Rules.landing(on: shopSquare, in: map, multiplier: 1),
-              case .coins(let a3, .shop, _) = Rules.landing(on: shopSquare, in: map, multiplier: 3) else {
-            return XCTFail("expected a shop landing")
-        }
-        XCTAssertEqual(a3, a1 * 3)
+        XCTAssertEqual(Rules.landing(on: shopSquare, in: map), .coins(amount: GameConfig.shopCoins, place: .shop, block: map.frontage(of: shopSquare)!.block))
     }
 
     func testNeedsOfExampleBlock() {
@@ -193,12 +188,9 @@ final class EconomyTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(PlayerState.self, from: JSONEncoder().encode(p)).outfit, p.outfit)
     }
 
-    func testMultiplierNeedsEnoughRolls() {
+    func testEachThrowSpendsOneRoll() {
         var p = PlayerState()
-        p.rolls = 2
-        p.cycleMultiplier(); XCTAssertEqual(p.multiplier, 2)
-        p.cycleMultiplier(); XCTAssertEqual(p.multiplier, 1)
-        p.multiplier = 2
+        p.rolls = 1
         XCTAssertTrue(p.spendRoll()); XCTAssertEqual(p.rolls, 0)
         XCTAssertFalse(p.spendRoll())
     }
@@ -213,19 +205,10 @@ final class EconomyTests: XCTestCase {
         XCTAssertFalse(p.claim(bus))
     }
 
-    func testCrateOddsArePublishedAndConsistent() {
-        XCTAssertEqual(ShopItem.crateOdds.map(\.chance).reduce(0, +), 1, accuracy: 1e-9)
-        XCTAssertEqual(ShopItem.openCrate(roll: 0.49), 3)
-        XCTAssertEqual(ShopItem.openCrate(roll: 0.79), 6)
-        XCTAssertEqual(ShopItem.openCrate(roll: 0.94), 12)
-        XCTAssertEqual(ShopItem.openCrate(roll: 0.999), 25)
-        XCTAssertTrue(ShopItem.crateOddsText.contains("25 rolls 5%"))
-    }
-
     func testDuel() {
-        XCTAssertEqual(Rules.duel(you: 6, them: 2, multiplier: 2), .win(80))
-        XCTAssertEqual(Rules.duel(you: 3, them: 3, multiplier: 1), .tie(10))
-        XCTAssertEqual(Rules.duel(you: 1, them: 4, multiplier: 1), .lose)
+        XCTAssertEqual(Rules.duel(you: 6, them: 2), .win(40))
+        XCTAssertEqual(Rules.duel(you: 3, them: 3), .tie(10))
+        XCTAssertEqual(Rules.duel(you: 1, them: 4), .lose)
     }
 
     func testStateRoundTripsThroughJSON() throws {
@@ -344,7 +327,7 @@ final class MonumentAndUpgradeTests: XCTestCase {
         XCTAssertNotNil(cell, "Giulia from Roma has the Colosseum")
         let street = Dir.optionOrder.map { cell!.moved($0) }.first { m.isRoad($0) && m.frontage(of: $0)?.tile == .colosseum }
         if let street {
-            XCTAssertEqual(Rules.landing(on: street, in: m, multiplier: 2), .coins(amount: GameConfig.landmarkCoins * 2, place: .colosseum, block: roma))
+            XCTAssertEqual(Rules.landing(on: street, in: m), .coins(amount: GameConfig.landmarkCoins, place: .colosseum, block: roma))
         }
     }
 
@@ -402,10 +385,10 @@ final class SeasonTests: XCTestCase {
     func testWeatherChangesTheRules() {
         let m = CityMap.example()
         let shopStreet = m.roadCells.first { m.squareKind(m.frontage(of: $0)) == .shop }!
-        guard case .coins(let dry, _, _) = Rules.landing(on: shopStreet, in: m, multiplier: 1, weather: .sunny),
-              case .coins(let wet, _, _) = Rules.landing(on: shopStreet, in: m, multiplier: 1, weather: .rain) else { return XCTFail() }
+        guard case .coins(let dry, _, _) = Rules.landing(on: shopStreet, in: m, weather: .sunny),
+              case .coins(let wet, _, _) = Rules.landing(on: shopStreet, in: m, weather: .rain) else { return XCTFail() }
         XCTAssertEqual(wet, dry * 2)
-        XCTAssertEqual(Rules.duel(you: 6, them: 1, multiplier: 1, weather: .snow), .win(GameConfig.duelWinCoins * 2))
+        XCTAssertEqual(Rules.duel(you: 6, them: 1, weather: .snow), .win(GameConfig.duelWinCoins * 2))
     }
 
     func testHolidayWindowsAndEventReward() {
