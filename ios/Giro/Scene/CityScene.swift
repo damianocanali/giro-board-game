@@ -420,6 +420,8 @@ final class CityScene {
     }
 
     func box(_ w: Float, _ h: Float, _ d: Float, r: Float = 0) -> MeshResource {
+        // A corner radius over half the thinnest side breaks the mesh into giant stretched triangles on device.
+        let r = min(r, min(w, h, d) * 0.49)
         let k = "b\(w)|\(h)|\(d)|\(r)"
         if let m = meshCache[k] { return m }
         let m = MeshResource.generateBox(width: w, height: h, depth: d, cornerRadius: r, splitFaces: false)
@@ -848,7 +850,7 @@ final class CityScene {
         holder.addChild(t)
         if let bg {
             let w = bounds.extents.x + size * 1.1, h = bounds.extents.y + size * 0.7
-            let board = ModelEntity(mesh: .generateBox(width: w, height: h, depth: 0.04, cornerRadius: h * 0.45), materials: [unlit(bg)])
+            let board = ModelEntity(mesh: .generateBox(width: w, height: h, depth: 0.04, cornerRadius: min(h * 0.45, 0.0196)), materials: [unlit(bg)])
             board.components.set(DynamicLightShadowComponent(castsShadow: false))
             holder.addChild(board)
         }
@@ -1221,7 +1223,7 @@ final class CityScene {
         }
         updateCars(dt)
         updatePet(dt)
-        animateWeather(weatherRoot, center: target, dt: dt, clock: clock)
+        animateWeather(weatherRoot, center: target, eyeHeight: eye.y, dt: dt, clock: clock)
     }
 
     // MARK: Weather and holidays

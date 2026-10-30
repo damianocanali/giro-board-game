@@ -50,8 +50,9 @@ extension CityScene {
         }
     }
 
-    /// Move rain, snow and clouds. Called every frame.
-    func animateWeather(_ root: Entity, center: SIMD3<Float>, dt: Float, clock: Float) {
+    /// Move rain, snow and clouds. Called every frame. Clouds hide once the camera rises to their level,
+    /// otherwise they fill the screen when you zoom out.
+    func animateWeather(_ root: Entity, center: SIMD3<Float>, eyeHeight: Float, dt: Float, clock: Float) {
         for e in root.children {
             switch e.name {
             case "drop":
@@ -62,6 +63,7 @@ extension CityScene {
                 e.position.x += sin(clock * 1.3 + e.position.z) * 0.6 * dt
                 if e.position.y < 0 { e.position = [center.x + Float.random(in: -32...32), 26, center.z + Float.random(in: -32...32)] }
             case "cloud":
+                e.isEnabled = eyeHeight < 19
                 e.position.x += 0.9 * dt
                 if e.position.x > 60 { e.position.x = -60 }
             default:
