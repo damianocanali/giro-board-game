@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 /// The title menu shown at launch, over the slowly turning city.
@@ -63,6 +64,7 @@ struct MenuView: View {
                     .buttonStyle(MenuChip())
                     .accessibilityLabel(model.musicOn ? "Turn music off" : "Turn music on")
                 }
+                AccountRow(model: model)
             }
             .frame(maxWidth: 380)
             .padding(.horizontal, 24)
@@ -70,6 +72,43 @@ struct MenuView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LinearGradient(colors: [Theme.paper.opacity(0.0), Theme.paper.opacity(0.55)], startPoint: .center, endPoint: .bottom).ignoresSafeArea())
+    }
+}
+
+/// Sign in with Apple to keep progress on a new phone, or the signed-in state with a sign-out link.
+private struct AccountRow: View {
+    let model: GameModel
+    private var account: Account { .shared }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if account.isSignedIn {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.icloud.fill").foregroundStyle(Theme.button)
+                    Text("Progress saved to your account").foregroundStyle(Theme.ink)
+                    Button("Sign out") { model.signOut() }.foregroundStyle(Theme.ink2)
+                }
+                .font(Theme.body(13, .bold))
+            } else {
+                SignInWithAppleButton(.signIn) { account.prepare($0) } onCompletion: { r in
+                    Task { await model.signIn(r) }
+                }
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 46)
+                .clipShape(Capsule())
+                Text("Sign in to keep your progress on a new phone.")
+                    .font(Theme.body(12, .bold)).foregroundStyle(Theme.ink2)
+            }
+            if let e = account.error {
+                Text(e).font(Theme.body(12, .bold)).foregroundStyle(.red)
+            }
+        }
+        .alert("Two saved games", isPresented: Binding(get: { model.cloudChoice != nil }, set: { _ in }), presenting: model.cloudChoice) { c in
+            Button("Use my account (\(c.coins) coins, \(c.stamps) stamps)") { model.resolveCloudChoice(keepCloud: true) }
+            Button("Keep this phone's game") { model.resolveCloudChoice(keepCloud: false) }
+        } message: { _ in
+            Text("This phone and your account both have progress. The one you don't pick is replaced.")
+        }
     }
 }
 

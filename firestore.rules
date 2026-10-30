@@ -1,0 +1,15 @@
+rules_version = '2';
+
+// Each player can read and write only their own save, at saves/{their uid}.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /saves/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['data', 'updated'])
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 500000
+        && request.resource.data.updated is timestamp;
+    }
+  }
+}

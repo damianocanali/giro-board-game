@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 import Observation
 import UIKit
@@ -118,6 +119,7 @@ final class GameModel {
         music.isOn = musicOn
         sfx.isOn = soundOn
         GameCenter.shared.authenticate()
+        if Account.shared.isSignedIn { Task { await syncAccount() } }
         #if DEBUG
         // `-giroSkin <id>` wears that skin, `-giroShowSkins YES` opens the skin picker (for screenshots).
         if let id = UserDefaults.standard.string(forKey: "giroSkin") {
@@ -810,7 +812,10 @@ final class GameModel {
         }
         let levels = Dictionary(uniqueKeysWithValues: map.levels.map { ("\($0.key.x),\($0.key.y)", $0.value) })
         let d = SaveData(player: player, ownership: map.ownership, myTiles: tiles, myLevels: levels)
-        if let data = try? JSONEncoder().encode(d) { UserDefaults.standard.set(data, forKey: Self.saveKey) }
+        if let data = try? JSONEncoder().encode(d) {
+            UserDefaults.standard.set(data, forKey: Self.saveKey)
+            Account.shared.upload(data)
+        }
         GameCenter.shared.report(stamps: player.stamps.count, landValue: map.myBlocks.reduce(0) { $0 + map.plotValue($1) })
     }
 
@@ -832,6 +837,51 @@ final class GameModel {
             }
         }
         if !map.isRoad(player.position) { player.position = Cell(12, 14); player.heading = .east }
+    }
+
+    // MARK: Account
+
+    /// Set when this phone and the account both have progress: the player picks which to keep.
+    struct CloudChoice: Equatable { var data: Data; var coins: Int; var stamps: Int }
+    var cloudChoice: CloudChoice?
+
+    func signIn(_ result: Result<ASAuthorization, Error>) async {
+        if await Account.shared.complete(result) { await syncAccount() }
+    }
+
+    func signOut() { Account.shared.signOut() }
+
+    private func syncAccount() async {
+        switch await Account.shared.sync(hasLocalSave: hasSave) {
+        case .failed: return
+        case .keepPhone: Account.shared.markReady(); save()
+        case .useCloud(let data): restore(data)
+        case .ask(let data):
+            guard let s = try? JSONDecoder().decode(SaveData.self, from: data) else { Account.shared.markReady(); save(); return }
+            cloudChoice = CloudChoice(data: data, coins: s.player.coins, stamps: s.player.stamps.count)
+        }
+    }
+
+    func resolveCloudChoice(keepCloud: Bool) {
+        guard let c = cloudChoice else { return }
+        cloudChoice = nil
+        if keepCloud { restore(c.data) } else { Account.shared.markReady(); save() }
+    }
+
+    /// Replace this phone's game with a save from the cloud.
+    private func restore(_ data: Data) {
+        if let d = try? JSONDecoder().decode(SaveData.self, from: data), d.ownership.count == map.ownership.count {
+            UserDefaults.standard.set(data, forKey: Self.saveKey)
+            player = PlayerState()
+            draft = nil
+            map = CityMap.example()
+            load()
+            needs = Needs.of(map)
+            scene?.rebuildAll(map: map, pawnAt: player.position)
+            scene?.applySkin(player.skin, outfit: player.outfit)
+        }
+        Account.shared.markReady()
+        save()
     }
 
     func resetProgress() {
