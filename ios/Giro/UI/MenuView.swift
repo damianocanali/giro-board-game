@@ -51,6 +51,11 @@ struct MenuView: View {
                     .buttonStyle(MenuChip())
                     Button { model.showSkins = true } label: { Label("Skins", systemImage: "tshirt.fill") }
                         .buttonStyle(MenuChip())
+                    if GameCenter.shared.isSignedIn {
+                        Button { GameCenter.shared.showLeaderboards() } label: { Image(systemName: "trophy.fill").frame(width: 22) }
+                            .buttonStyle(MenuChip())
+                            .accessibilityLabel("Leaderboards")
+                    }
                     Button { model.musicOn.toggle() } label: {
                         Image(systemName: model.musicOn ? "speaker.wave.2.fill" : "speaker.slash.fill")
                             .frame(width: 22)

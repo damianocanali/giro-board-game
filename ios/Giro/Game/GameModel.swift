@@ -117,6 +117,7 @@ final class GameModel {
         for _ in 0..<14 { dropCoin() }
         music.isOn = musicOn
         sfx.isOn = soundOn
+        GameCenter.shared.authenticate()
         #if DEBUG
         // `-giroSkin <id>` wears that skin, `-giroShowSkins YES` opens the skin picker (for screenshots).
         if let id = UserDefaults.standard.string(forKey: "giroSkin") {
@@ -810,6 +811,7 @@ final class GameModel {
         let levels = Dictionary(uniqueKeysWithValues: map.levels.map { ("\($0.key.x),\($0.key.y)", $0.value) })
         let d = SaveData(player: player, ownership: map.ownership, myTiles: tiles, myLevels: levels)
         if let data = try? JSONEncoder().encode(d) { UserDefaults.standard.set(data, forKey: Self.saveKey) }
+        GameCenter.shared.report(stamps: player.stamps.count, landValue: map.myBlocks.reduce(0) { $0 + map.plotValue($1) })
     }
 
     private func load() {
