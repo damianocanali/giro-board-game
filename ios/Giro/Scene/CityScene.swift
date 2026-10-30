@@ -9,7 +9,7 @@ final class CityScene {
     let arView: ARView
 
     // Scene graph
-    private let world: AnchorEntity
+    let world: AnchorEntity
     private let cityRoot: Entity
     private let fxRoot: Entity
     private let coinRoot: Entity
@@ -34,18 +34,26 @@ final class CityScene {
     private var updateSubscription: (any Cancellable)?
     private var map: CityMap
     private var cars: [Car] = []
-    private var clock: Float = 0
+    private(set) var clock: Float = 0
+    /// Inside a building: the room, the city camera to return to, and the shopkeeper's waving arm.
+    var interior: Entity?
+    var savedCamera: (target: SIMD3<Float>, distance: Float, theta: Float, phi: Float, follow: Bool)?
+    var waver: Entity?
+    var interiorClock: Float = 0
+    /// Until when each character is walking (scene clock), and how far its arms and legs swing now.
+    private var walkUntil: [ObjectIdentifier: Float] = [:]
+    private var swing: [ObjectIdentifier: Float] = [:]
 
     // Camera rig (orbit around a target that can follow the pawn)
     var theta: Float = -0.8
     var phi: Float = 0.92
-    private var distance: Float = 22
+    var distance: Float = 22
     var goalDistance: Float = 22
-    private var target = SIMD3<Float>(0, 0, 0)
-    private var goalTarget = SIMD3<Float>(0, 0, 0)
+    var target = SIMD3<Float>(0, 0, 0)
+    var goalTarget = SIMD3<Float>(0, 0, 0)
     var followPawn = true
     /// Title menu: the camera slowly circles the whole city.
-    private var showcase = false
+    var showcase = false
 
     var onTapFork: ((Int) -> Void)?
     var onTapSale: ((Int) -> Void)?
@@ -700,28 +708,41 @@ final class CityScene {
 
     /// A little person: legs, feet, torso, arms and a big head, about 1.4 tall before scaling, facing +z.
     /// The skin colours the body; the outfit's clothes and shoes are drawn over it.
-    private func makeCharacter(color: UInt32, outfit: Outfit, scale: Float, eyes: Bool) -> Entity {
+    static let hip: Float = 0.44, shoulder: Float = 0.82
+
+    /// An empty pivot that a limb's parts hang from.
+    private func joint(_ name: String, at p: SIMD3<Float>, in g: Entity) -> Entity {
+        let j = Entity()
+        j.name = name
+        j.position = p
+        g.addChild(j)
+        return j
+    }
+
+    func makeCharacter(color: UInt32, outfit: Outfit, scale: Float, eyes: Bool) -> Entity {
         let g = Entity()
         let o = outfit.normalized
         let topHex = o.top == .none ? color : o.topColor
         let sleeves = o.top == .hoodie || o.top == .jacket
 
-        // Legs and feet.
+        // Legs and feet, each hanging from a hip joint so it can swing.
         let legHex = o.bottom == .trousers ? o.bottomColor : color
         for x: Float in [-0.1, 0.1] {
-            part(box(0.13, 0.36, 0.14, r: 0.06), legHex, [x, 0.27, 0], in: g)
+            let leg = joint(x < 0 ? "legL" : "legR", at: [x, Self.hip, 0], in: g)
+            func at(_ y: Float, _ z: Float = 0.03) -> SIMD3<Float> { [0, y - Self.hip, z] }
+            part(box(0.13, 0.36, 0.14, r: 0.06), legHex, at(0.27, 0), in: leg)
             switch o.shoes {
             case .none:
-                part(box(0.13, 0.08, 0.2, r: 0.04), color, [x, 0.05, 0.03], in: g)
+                part(box(0.13, 0.08, 0.2, r: 0.04), color, at(0.05), in: leg)
             case .sneakers:
-                part(box(0.15, 0.04, 0.23, r: 0.02), 0xFFFFFF, [x, 0.02, 0.03], in: g)
-                part(box(0.14, 0.07, 0.21, r: 0.035), o.shoeColor, [x, 0.07, 0.03], in: g)
+                part(box(0.15, 0.04, 0.23, r: 0.02), 0xFFFFFF, at(0.02), in: leg)
+                part(box(0.14, 0.07, 0.21, r: 0.035), o.shoeColor, at(0.07), in: leg)
             case .boots:
-                part(box(0.15, 0.2, 0.22, r: 0.04), o.shoeColor, [x, 0.1, 0.03], in: g)
+                part(box(0.15, 0.2, 0.22, r: 0.04), o.shoeColor, at(0.1), in: leg)
             case .sandals:
-                part(box(0.14, 0.03, 0.22, r: 0.01), o.shoeColor, [x, 0.015, 0.03], in: g)
-                part(box(0.13, 0.06, 0.18, r: 0.03), color, [x, 0.06, 0.03], in: g)
-                part(box(0.145, 0.03, 0.04, r: 0.01), o.shoeColor, [x, 0.07, 0.06], in: g)
+                part(box(0.14, 0.03, 0.22, r: 0.01), o.shoeColor, at(0.015), in: leg)
+                part(box(0.13, 0.06, 0.18, r: 0.03), color, at(0.06), in: leg)
+                part(box(0.145, 0.03, 0.04, r: 0.01), o.shoeColor, at(0.07, 0.06), in: leg)
             }
         }
         switch o.bottom {
@@ -740,8 +761,9 @@ final class CityScene {
             if o.top == .tee || o.top == .dress {
                 part(box(0.12, 0.13, 0.13, r: 0.05), o.topColor, [x, 0.79, 0], in: g)
             }
-            part(box(0.1, 0.32, 0.11, r: 0.05), sleeves ? o.topColor : color, [x, 0.67, 0], in: g)
-            part(sphere(0.065), color, [x, 0.49, 0], in: g)
+            let arm = joint(x < 0 ? "armL" : "armR", at: [x, Self.shoulder, 0], in: g)
+            part(box(0.1, 0.32, 0.11, r: 0.05), sleeves ? o.topColor : color, [0, 0.67 - Self.shoulder, 0], in: arm)
+            part(sphere(0.065), color, [0, 0.49 - Self.shoulder, 0], in: arm)
         }
 
         // Head.
@@ -765,7 +787,7 @@ final class CityScene {
         die.addChild(makeDie(skin))
     }
 
-    private func addHat(_ hat: Skin.Hat, color: UInt32, to g: Entity) {
+    func addHat(_ hat: Skin.Hat, color: UInt32, to g: Entity) {
         switch hat {
         case .none:
             break
@@ -883,12 +905,40 @@ final class CityScene {
         die.isEnabled = false
     }
 
-    func hopPawn(to c: Cell) async {
-        let from = pawn.position, to = walkSpot(c)
-        let rot = simd_quatf(angle: atan2(to.x - from.x, to.z - from.z), axis: [0, 1, 0])
-        let mid = (from + to) / 2 + [0, 0.45, 0]
-        await animate(pawn, to: Transform(scale: pawn.scale, rotation: rot, translation: mid), duration: 0.11, timing: .easeOut)
-        await animate(pawn, to: Transform(scale: pawn.scale, rotation: rot, translation: to), duration: 0.11, timing: .easeIn)
+    /// Seconds to walk one square.
+    static let stepTime: TimeInterval = 0.3
+
+    /// Walk one square at a steady pace, turning smoothly at corners.
+    func walkPawn(to c: Cell) async {
+        await walk(pawn, to: walkSpot(c), duration: Self.stepTime)
+    }
+
+    /// A few steps toward a building's door, before going in.
+    func walkTowardDoor(of c: Cell) async {
+        let door = Self.position(c, y: pawn.position.y)
+        await walk(pawn, to: pawn.position + (door - pawn.position) * 0.4, duration: 0.45)
+    }
+
+    private func walk(_ e: Entity, to: SIMD3<Float>, duration: TimeInterval) async {
+        let from = e.position
+        let rot = simd_length(to - from) > 0.001 ? simd_quatf(angle: atan2(to.x - from.x, to.z - from.z), axis: [0, 1, 0]) : e.orientation
+        walkUntil[ObjectIdentifier(e)] = clock + Float(duration) + 0.12
+        await animate(e, to: Transform(scale: e.scale, rotation: rot, translation: to), duration: duration, timing: .linear)
+    }
+
+    /// Swing arms and legs while a character walks, and ease back to standing when it stops.
+    private func animateLimbs(_ body: Entity, dt: Float) {
+        let id = ObjectIdentifier(body)
+        let was = swing[id] ?? 0
+        let a = was + ((clock < (walkUntil[id] ?? 0) ? 1 : 0) - was) * min(1, dt * 10)
+        guard a > 0.001 || was > 0.001 else { return }
+        swing[id] = a
+        let s = sin(clock * 13) * a
+        body.findEntity(named: "legL")?.orientation = simd_quatf(angle: s * 0.6, axis: [1, 0, 0])
+        body.findEntity(named: "legR")?.orientation = simd_quatf(angle: -s * 0.6, axis: [1, 0, 0])
+        body.findEntity(named: "armL")?.orientation = simd_quatf(angle: -s * 0.5, axis: [1, 0, 0])
+        body.findEntity(named: "armR")?.orientation = simd_quatf(angle: s * 0.5, axis: [1, 0, 0])
+        body.findEntity(named: "look")?.position.y = abs(sin(clock * 13)) * a * 0.04
     }
 
     func ridePawn(along path: [Cell]) async {
@@ -908,13 +958,9 @@ final class CityScene {
         await animate(pawn, to: Transform(scale: pawn.scale, rotation: pawn.orientation, translation: end), duration: 0.2, timing: .easeIn)
     }
 
-    func hopGhost(_ id: Int, to c: Cell) async {
+    func walkGhost(_ id: Int, to c: Cell) async {
         guard let e = ghostEntities[id] else { return }
-        let off = ghostOffsets[id] ?? .zero
-        let from = e.position, to = walkSpot(c) + off
-        let rot = simd_quatf(angle: atan2(to.x - from.x, to.z - from.z), axis: [0, 1, 0])
-        await animate(e, to: Transform(scale: e.scale, rotation: rot, translation: (from + to) / 2 + [0, 0.35, 0]), duration: 0.085, timing: .easeOut)
-        await animate(e, to: Transform(scale: e.scale, rotation: rot, translation: to), duration: 0.085, timing: .easeIn)
+        await walk(e, to: walkSpot(c) + (ghostOffsets[id] ?? .zero), duration: 0.24)
     }
 
     private func makeBus() -> Entity {
@@ -1114,7 +1160,7 @@ final class CityScene {
     }
 
     /// Toy animals about half as tall as a person, facing +z.
-    private func makePet(_ kind: PetKind, color: UInt32) -> Entity {
+    func makePet(_ kind: PetKind, color: UInt32) -> Entity {
         let g = Entity()
         let dark: UInt32 = 0x2B1A10
         switch kind {
@@ -1187,15 +1233,18 @@ final class CityScene {
     func focusOnCity() { followPawn = false; goalTarget = .zero; goalDistance = 92 }
 
     func orbit(by translation: CGPoint) {
+        guard interior == nil else { return }
         theta += Float(translation.x) * 0.006
         phi = max(0.35, min(1.3, phi - Float(translation.y) * 0.005))
     }
 
     func zoom(by scale: CGFloat) {
+        guard interior == nil else { return }
         goalDistance = max(6, min(130, goalDistance / Float(scale)))
     }
 
     func handleTap(at point: CGPoint) {
+        guard interior == nil else { return }
         var e = arView.entity(at: point)
         while let cur = e {
             if cur.name.hasPrefix("fork-"), let i = Int(cur.name.dropFirst(5)) { onTapFork?(i); return }
@@ -1221,6 +1270,11 @@ final class CityScene {
         for e in arrowRoot.children {
             e.position.y = 0.75 + sin(clock * 5.5) * 0.1
         }
+        animateLimbs(pawn, dt: dt)
+        for e in ghostEntities.values { animateLimbs(e, dt: dt) }
+        if interior != nil { animateInterior(dt) }
+        // No rain or snow indoors.
+        weatherRoot.isEnabled = interior == nil
         updateCars(dt)
         updatePet(dt)
         animateWeather(weatherRoot, center: target, eyeHeight: eye.y, dt: dt, clock: clock)

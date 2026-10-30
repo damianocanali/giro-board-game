@@ -78,12 +78,17 @@ final class GameModel {
     var showShop = false
     /// The store you are inside, if any.
     var storeVisit: StoreVisit?
+    /// Walking through a door: the screen fades to this message with a spinner.
+    var doorFade: String?
+    #if DEBUG
+    @ObservationIgnored var debugStore: StoreVisit?
+    #endif
     /// The weather right now (changes every three hours).
     var weather = Weather.at(Date())
     /// The holiday event running now, if any.
     var holiday = Holiday.active(at: Date())
     /// The title menu shown at launch.
-    var showMenu = !ProcessInfo.processInfo.arguments.contains { ["-giroBuildDemo", "-giroRollDemo", "-giroMonumentDemo", "-giroStampDemo"].contains($0) }
+    var showMenu = !ProcessInfo.processInfo.arguments.contains { ["-giroBuildDemo", "-giroRollDemo", "-giroMonumentDemo", "-giroStampDemo", "-giroStore"].contains($0) }
     var hasSave: Bool { UserDefaults.standard.data(forKey: Self.saveKey) != nil }
     var showMissions = false
 
@@ -131,7 +136,7 @@ final class GameModel {
             player.items.insert(id); player.pet = id
         }
         if let k = UserDefaults.standard.string(forKey: "giroStore").flatMap(StoreKind.init(rawValue:)) {
-            storeVisit = StoreVisit(cell: Cell(0, 0), kind: k, owner: "Yuki's", city: "Sapporo")
+            debugStore = StoreVisit(cell: Cell(0, 0), kind: k, owner: k == .home ? "Your" : "Yuki's", city: "Sapporo")
         }
         // `-giroOutfit <n>` dresses you in a sample outfit.
         if UserDefaults.standard.object(forKey: "giroOutfit") != nil {
@@ -156,6 +161,7 @@ final class GameModel {
         if player.refillIfNewDay(now: Date()) > 0 { save() }
         #if DEBUG
         runBuildDemoIfRequested()
+        if let v = debugStore { Task { try? await Task.sleep(for: .seconds(1)); await enter(v) } }
         #endif
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -261,7 +267,7 @@ final class GameModel {
                 d = opts[pick]
             }
             let next = player.position.moved(d)
-            await scene.hopPawn(to: next)
+            await scene.walkPawn(to: next)
             haptic.impactOccurred(intensity: 0.5)
             player.position = next
             player.heading = d
@@ -343,7 +349,7 @@ final class GameModel {
             showToast("\(what) in \(o.city)", "+\(amount) coins" + (weather == .rain && !place.isMonument ? " · rain bonus" : ""))
             if let v = store(facing: c) {
                 try? await Task.sleep(for: .seconds(1.1))
-                storeVisit = v
+                await enter(v)
             }
         case .freeRoll(let r, let b):
             player.rolls += r
@@ -682,7 +688,7 @@ final class GameModel {
             let o = map.options(at: g.cell, heading: g.heading)
             guard let d = o.randomElement() else { break }
             let next = g.cell.moved(d)
-            await scene.hopGhost(id, to: next)
+            await scene.walkGhost(id, to: next)
             ghosts[i].cell = next
             ghosts[i].heading = d
         }

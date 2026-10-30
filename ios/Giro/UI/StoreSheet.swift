@@ -1,33 +1,73 @@
 import SwiftUI
 
-/// Inside a store: a little shopfront scene, then the shelves. Buy, wear, eat or sell back for half.
-struct StoreSheet: View {
+/// Inside a building, over the 3D room: the shopkeeper's hello at the top and the goods on a panel below.
+/// At home the panel is your wardrobe instead.
+struct InteriorHUD: View {
     let model: GameModel
     let visit: StoreVisit
-    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
+
+    private var isHome: Bool { visit.kind == .home }
+    private var items: [StoreItem] {
+        isHome ? StoreItem.catalog.filter { !$0.isFood && model.player.owns($0) } : visit.kind.items
+    }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 14) {
-                    StoreInterior(visit: visit)
-                    if visit.kind == .cafe || visit.kind == .grocery { energy }
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(visit.kind.items) { item in StoreItemCard(model: model, item: item) }
-                    }
-                    if visit.kind != .cafe && visit.kind != .grocery {
-                        Text("Shops buy back anything you own for half what you paid. Selling to other players comes with online play.")
-                            .font(Theme.body(12)).foregroundStyle(Theme.ink2).multilineTextAlignment(.center)
+        VStack(spacing: 12) {
+            Spacer()
+            if !isHome {
+                Text(greeting)
+                    .font(Theme.body(15, .bold))
+                    .foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line, lineWidth: 1))
+                    .shadow(color: Theme.ink.opacity(0.15), radius: 8, y: 4)
+                    .transition(.scale.combined(with: .opacity))
+            }
+            panel
+        }
+    }
+
+    private var greeting: String {
+        if visit.owner == "Your" { return "Welcome back, boss! Business is good." }
+        let name = visit.owner.hasSuffix("'s") ? String(visit.owner.dropLast(2)) : visit.owner
+        return "Hi, I'm \(name)! Welcome to my \(visit.kind.name.lowercased()) in \(visit.city)."
+    }
+
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(isHome ? "Your wardrobe" : "\(visit.owner) \(visit.kind.name.lowercased())")
+                    .font(Theme.display(22)).foregroundStyle(Theme.ink)
+                Spacer()
+                Button { model.leaveStore() } label: {
+                    Label("Leave", systemImage: "door.left.hand.open").font(Theme.body(14, .bold))
+                }
+                .buttonStyle(CardButtonStyle())
+            }
+            if visit.kind == .cafe || visit.kind == .grocery { energy }
+            if items.isEmpty {
+                Text("Clothes, shoes and pets you buy in shops end up here, ready to wear.")
+                    .font(Theme.body(14)).foregroundStyle(Theme.ink2)
+                    .frame(maxWidth: .infinity, minHeight: 90)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(items) { item in StoreItemCard(model: model, item: item, canSell: !isHome).frame(width: 150) }
                     }
                 }
-                .padding(16)
             }
-            .background(Theme.paper)
-            .navigationTitle("\(visit.owner) \(visit.kind.name.lowercased())")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Leave") { model.storeVisit = nil } } }
+            if !isHome && visit.kind != .cafe && visit.kind != .grocery {
+                Text("Shops buy back anything you own for half what you paid.")
+                    .font(Theme.body(12)).foregroundStyle(Theme.ink2)
+            }
         }
-        .tint(Theme.ink)
+        .padding(16)
+        .background(Theme.paper, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Theme.line, lineWidth: 1))
+        .shadow(color: Theme.ink.opacity(0.18), radius: 14, y: 6)
+        .frame(maxWidth: 520)
     }
 
     /// Food is energy: rolls left to eat today, and the café's free daily snack.
@@ -39,74 +79,36 @@ struct StoreSheet: View {
                 Text("\(model.player.foodRollsLeft) of \(StoreItem.dailyFoodRolls) rolls left").font(Theme.body(13, .bold)).foregroundStyle(Theme.ink2)
             }
             ProgressView(value: Double(model.player.foodRollsToday), total: Double(StoreItem.dailyFoodRolls)).tint(Theme.good)
-            if visit.kind == .cafe {
-                if model.player.freeSnackTaken {
-                    Text("You've had today's free snack. Come back tomorrow!").font(Theme.body(13)).foregroundStyle(Theme.ink2)
-                } else {
-                    Button("Free daily snack: +\(StoreItem.freeSnackRolls) roll") { model.takeFreeSnack() }
-                        .buttonStyle(CardButtonStyle())
-                        .disabled(model.player.foodRollsLeft < StoreItem.freeSnackRolls)
-                }
+            if visit.kind == .cafe && !model.player.freeSnackTaken {
+                Button("Free daily snack: +\(StoreItem.freeSnackRolls) roll") { model.takeFreeSnack() }
+                    .buttonStyle(CardButtonStyle())
+                    .disabled(model.player.foodRollsLeft < StoreItem.freeSnackRolls)
             }
         }
-        .padding(14)
-        .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.line, lineWidth: 1))
+        .padding(12)
+        .background(Theme.sheet, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
-/// A drawn shop interior: coloured wall, shelves with the stock on them and the counter.
-private struct StoreInterior: View {
-    let visit: StoreVisit
-
-    private var wall: Color {
-        switch visit.kind {
-        case .clothes: Color(hex: 0xF7D9E3)
-        case .shoes: Color(hex: 0xDCE8F5)
-        case .pets: Color(hex: 0xDDEFD6)
-        case .grocery: Color(hex: 0xFBE7C2)
-        case .cafe: Color(hex: 0xEAD7C3)
-        }
-    }
+/// Walking through a door: the screen fades to paper with a spinner.
+struct DoorFade: View {
+    let text: String
 
     var body: some View {
-        let stock = visit.kind.items.map(\.emoji)
-        VStack(spacing: 0) {
-            ForEach(0..<2, id: \.self) { row in
-                VStack(spacing: 0) {
-                    HStack(spacing: 10) {
-                        ForEach(0..<6, id: \.self) { i in
-                            Text(stock[(row * 6 + i) % stock.count]).font(.system(size: 26))
-                        }
-                    }
-                    .frame(height: 38)
-                    RoundedRectangle(cornerRadius: 3).fill(Color(hex: 0xB8784A)).frame(height: 7)
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 10)
+        ZStack {
+            Theme.paper.ignoresSafeArea()
+            VStack(spacing: 14) {
+                ProgressView().controlSize(.large).tint(Theme.ink)
+                Text(text).font(Theme.body(17, .bold)).foregroundStyle(Theme.ink)
             }
-            Spacer(minLength: 12)
-            HStack {
-                Text("Welcome to \(visit.owner.lowercased() == "your" ? "your" : visit.owner) \(visit.kind.name.lowercased()) in \(visit.city)!")
-                    .font(Theme.body(13, .bold)).foregroundStyle(Theme.ink)
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 40)
-            .background(Color(hex: 0x8A5A3B).opacity(0.25))
         }
-        .frame(height: 170)
-        .background(wall)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.line, lineWidth: 1))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(visit.owner) \(visit.kind.name) in \(visit.city)")
     }
 }
 
-private struct StoreItemCard: View {
+struct StoreItemCard: View {
     let model: GameModel
     let item: StoreItem
+    var canSell = true
 
     private var owned: Bool { model.player.owns(item) }
     private var wearing: Bool { owned && model.player.isWearing(item) }
@@ -155,8 +157,10 @@ private struct StoreItemCard: View {
             HStack(spacing: 6) {
                 Button(wearing ? (item.isPet ? "Home" : "Take off") : (item.isPet ? "Walk" : "Wear")) { model.toggleWear(item) }
                     .buttonStyle(CardButtonStyle())
-                Button("Sell \(item.resale) ¢") { model.sellItem(item) }
-                    .buttonStyle(CardButtonStyle())
+                if canSell {
+                    Button("Sell \(item.resale) ¢") { model.sellItem(item) }
+                        .buttonStyle(CardButtonStyle())
+                }
             }
         } else {
             Button("\(item.price) ¢") { model.buyItem(item) }

@@ -14,6 +14,9 @@ struct ContentView: View {
             } else {
             VStack(spacing: 10) {
                 TopBar(model: model)
+                if let v = model.storeVisit {
+                    InteriorHUD(model: model, visit: v)
+                } else {
                 if !model.isBuilding { StatusRow(model: model) }
                 if let t = model.toast {
                     ToastView(toast: t)
@@ -37,6 +40,7 @@ struct ContentView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     RollDock(model: model)
+                }
                 }
             }
             .padding(.horizontal, 16)
@@ -69,7 +73,20 @@ struct ContentView: View {
                     .id(e.id)
                     .transition(.opacity)
             }
+
+            if model.showShop {
+                ShopSheet(model: model).transition(.opacity.combined(with: .scale(scale: 0.94)))
+            } else if model.showSkins {
+                SkinsSheet(model: model).transition(.opacity.combined(with: .scale(scale: 0.94)))
+            }
+
+            if let t = model.doorFade {
+                DoorFade(text: t).transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.4), value: model.doorFade)
+        .animation(.spring(duration: 0.3), value: model.showShop)
+        .animation(.spring(duration: 0.3), value: model.showSkins)
         .animation(.easeInOut(duration: 0.25), value: model.stampEvent)
         .animation(.spring(duration: 0.35), value: model.toast)
         .animation(.spring(duration: 0.3), value: model.rolledValue)
@@ -77,10 +94,7 @@ struct ContentView: View {
         .animation(.spring(duration: 0.3), value: model.isBuilding)
         .animation(.spring(duration: 0.3), value: model.nearbyStore)
         .animation(.easeInOut(duration: 0.4), value: model.showMenu)
-        .sheet(isPresented: $model.showShop) { ShopSheet(model: model).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $model.showCityPicker) { CityPickerSheet(model: model).presentationDetents([.medium, .large]) }
-        .sheet(isPresented: $model.showSkins) { SkinsSheet(model: model).presentationDetents([.medium, .large]) }
-        .sheet(item: $model.storeVisit) { v in StoreSheet(model: model, visit: v).presentationDetents([.medium, .large]) }
         .sheet(isPresented: $model.showMissions) { MissionsSheet(model: model).presentationDetents([.large]) }
         .task { model.start() }
     }

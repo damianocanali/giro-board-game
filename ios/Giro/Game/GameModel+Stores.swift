@@ -16,21 +16,52 @@ extension PlayerState {
 extension GameModel {
     /// The store a street square faces, if that building is one.
     func store(facing c: Cell) -> StoreVisit? {
-        guard let f = map.frontage(of: c), let kind = StoreKind.of(f.tile, at: f.cell) else { return nil }
+        guard let f = map.frontage(of: c) else { return nil }
+        let mine = map.ownership[f.block] == .mine
         let o = map.owners[f.block]
-        return StoreVisit(cell: f.cell, kind: kind, owner: map.ownership[f.block] == .mine ? "Your" : "\(o.name)'s", city: o.city)
+        if mine && (f.tile == .house || f.tile == .apartments) {
+            return StoreVisit(cell: f.cell, kind: .home, owner: "Your", city: player.homeCity ?? o.city)
+        }
+        guard let kind = StoreKind.of(f.tile, at: f.cell) else { return nil }
+        return StoreVisit(cell: f.cell, kind: kind, owner: mine ? "Your" : "\(o.name)'s", city: o.city)
     }
 
     /// The store next to where you are standing, while nothing else is going on.
     var nearbyStore: StoreVisit? {
-        guard !isBusy, !isBuilding, forkChoices.isEmpty, storeVisit == nil else { return nil }
+        guard !isBusy, !isBuilding, forkChoices.isEmpty, storeVisit == nil, doorFade == nil else { return nil }
         return store(facing: player.position)
     }
 
     func enterNearbyStore() {
         guard let v = nearbyStore else { return }
+        Task { await enter(v) }
+    }
+
+    /// Walk to the door, fade out with a spinner, and come in to the room.
+    func enter(_ v: StoreVisit) async {
+        guard storeVisit == nil, doorFade == nil, let scene else { return }
         sfx.play(.coin, volume: 0.3)
+        await scene.walkTowardDoor(of: v.cell)
+        doorFade = v.kind == .home ? "Going home…" : "Going into \(v.owner) \(v.kind.name.lowercased())…"
+        try? await Task.sleep(for: .milliseconds(450))
+        scene.showInterior(v, skin: player.skin, outfit: player.outfit, pet: player.petItem)
         storeVisit = v
+        try? await Task.sleep(for: .milliseconds(550))
+        doorFade = nil
+    }
+
+    /// Fade out, back on the street where you were.
+    func leaveStore() {
+        guard storeVisit != nil, doorFade == nil else { return }
+        doorFade = "Back to the street…"
+        Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            storeVisit = nil
+            scene?.hideInterior()
+            scene?.placePawn(at: player.position, heading: player.heading)
+            try? await Task.sleep(for: .milliseconds(350))
+            doorFade = nil
+        }
     }
 
     /// A building was tapped in the city: go in if it is a store right next to you.
@@ -83,6 +114,7 @@ extension GameModel {
     private func refreshLook() {
         scene?.applySkin(player.skin, outfit: player.outfit)
         scene?.setPet(player.petItem)
+        if let v = storeVisit { scene?.refreshVisitor(skin: player.skin, outfit: player.outfit, pet: player.petItem, home: v.kind == .home) }
         save()
     }
 }

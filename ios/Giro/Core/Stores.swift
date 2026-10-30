@@ -3,6 +3,8 @@ import Foundation
 /// The kinds of store you can walk into. Shops are split between clothes, shoes, pets and groceries; cafés sell snacks.
 public enum StoreKind: String, CaseIterable, Sendable {
     case clothes, shoes, pets, grocery, cafe
+    /// Your own home: no shopkeeper and nothing for sale, just your wardrobe.
+    case home
 
     public var name: String {
         switch self {
@@ -11,6 +13,7 @@ public enum StoreKind: String, CaseIterable, Sendable {
         case .pets: "Pet shop"
         case .grocery: "Grocery"
         case .cafe: "Café"
+        case .home: "Home"
         }
     }
 

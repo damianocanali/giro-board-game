@@ -1,10 +1,42 @@
 import SwiftUI
 
+/// A card in the middle of the screen over a dimmed game, with a title and a close button.
+struct CenterPanel<Content: View>: View {
+    let title: String
+    let close: () -> Void
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.35).ignoresSafeArea().onTapGesture(perform: close)
+            VStack(spacing: 0) {
+                HStack {
+                    Text(title).font(Theme.display(26)).foregroundStyle(Theme.ink)
+                    Spacer()
+                    Button(action: close) {
+                        Image(systemName: "xmark").font(.system(size: 14, weight: .heavy)).foregroundStyle(Theme.ink)
+                            .frame(width: 34, height: 34).background(Theme.sheet, in: Circle())
+                    }
+                    .accessibilityLabel("Close")
+                }
+                .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 6)
+                content
+            }
+            .frame(maxWidth: 400, maxHeight: 640)
+            .background(Theme.paper, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Theme.line, lineWidth: 1))
+            .shadow(color: Theme.ink.opacity(0.25), radius: 24, y: 10)
+            .padding(.horizontal, 16).padding(.vertical, 48)
+        }
+        .tint(Theme.ink)
+    }
+}
+
 struct ShopSheet: View {
     let model: GameModel
 
     var body: some View {
-        NavigationStack {
+        CenterPanel(title: "Shop", close: { model.showShop = false }) {
             List {
                 if let h = model.holiday {
                     Section("\(h.name) · \(h.daysLeft(from: model.now)) days left") {
@@ -43,12 +75,7 @@ struct ShopSheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Theme.paper)
-            .navigationTitle("Shop")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { model.showShop = false } } }
         }
-        .tint(Theme.ink)
     }
 
     private func priceText(_ i: ShopItem) -> String {
@@ -229,19 +256,14 @@ struct SkinsSheet: View {
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
 
     var body: some View {
-        NavigationStack {
+        CenterPanel(title: "Skins", close: { model.showSkins = false }) {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(Skin.all) { s in SkinCard(model: model, skin: s) }
                 }
                 .padding(16)
             }
-            .background(Theme.paper)
-            .navigationTitle("Skins")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { model.showSkins = false } } }
         }
-        .tint(Theme.ink)
     }
 }
 

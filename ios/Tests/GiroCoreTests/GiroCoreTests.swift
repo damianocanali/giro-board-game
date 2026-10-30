@@ -130,7 +130,8 @@ final class EconomyTests: XCTestCase {
         XCTAssertEqual(StoreKind.of(.cafe, at: Cell(3, 4)), .cafe)
         XCTAssertNil(StoreKind.of(.house, at: Cell(3, 4)))
         XCTAssertEqual(Set((0..<40).compactMap { StoreKind.of(.shop, at: Cell($0, $0 * 3)) }).count, 4)
-        for k in StoreKind.allCases { XCTAssertFalse(k.items.isEmpty, "\(k) has stock") }
+        for k in StoreKind.allCases where k != .home { XCTAssertFalse(k.items.isEmpty, "\(k) has stock") }
+        XCTAssertTrue(StoreKind.home.items.isEmpty, "nothing for sale at home")
         XCTAssertEqual(Set(StoreItem.catalog.map(\.id)).count, StoreItem.catalog.count, "ids are unique")
 
         var p = PlayerState()
