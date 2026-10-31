@@ -123,6 +123,15 @@ private struct TopBar: View {
                         Button { model.cameraView = v } label: { Label(v.name, systemImage: model.cameraView == v ? "checkmark" : v.icon) }
                     }
                 }
+                #if DEBUG
+                Section("Glitch hunt") {
+                    ForEach([("players", "Other players"), ("traffic", "Traffic"), ("props", "Halloween props"), ("weather", "Weather"), ("effects", "Effects")], id: \.0) { key, name in
+                        Button {
+                            if model.debugHidden.contains(key) { model.debugHidden.remove(key) } else { model.debugHidden.insert(key) }
+                        } label: { Label("Hide \(name.lowercased())", systemImage: model.debugHidden.contains(key) ? "eye.slash" : "eye") }
+                    }
+                }
+                #endif
                 Section("Camera") {
                     Button { model.scene?.focusOnPawn() } label: { Label("Follow me", systemImage: "figure.walk") }
                     Button { model.scene?.focusOnMyBlocks() } label: { Label("My block", systemImage: "house") }

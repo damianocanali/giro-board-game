@@ -88,7 +88,7 @@ final class GameModel {
     /// The holiday event running now, if any.
     var holiday = Holiday.active(at: Date())
     /// The title menu shown at launch.
-    var showMenu = !ProcessInfo.processInfo.arguments.contains { ["-giroBuildDemo", "-giroRollDemo", "-giroMonumentDemo", "-giroStampDemo", "-giroStore"].contains($0) }
+    var showMenu = !ProcessInfo.processInfo.arguments.contains { ["-giroBuildDemo", "-giroRollDemo", "-giroMonumentDemo", "-giroStampDemo", "-giroStore", "-giroLevels"].contains($0) }
     var hasSave: Bool { UserDefaults.standard.data(forKey: Self.saveKey) != nil }
     var showMissions = false
 
@@ -141,6 +141,11 @@ final class GameModel {
         // `-giroOutfit <n>` dresses you in a sample outfit.
         if UserDefaults.standard.object(forKey: "giroOutfit") != nil {
             player.outfit = .sample(UserDefaults.standard.integer(forKey: "giroOutfit"))
+        }
+        // `-giroLevels <n>` shows every building in the city at that upgrade level (not saved).
+        let n = UserDefaults.standard.integer(forKey: "giroLevels")
+        if n > 1 {
+            for y in 0..<CityMap.size { for x in 0..<CityMap.size where map.tiles[y][x].canUpgrade { map.levels[Cell(x, y)] = min(n, Tile.maxLevel) } }
         }
         // `-giroWeather rain` (or sunny, cloudy, snow) fixes the weather.
         if let f = UserDefaults.standard.string(forKey: "giroWeather").flatMap(Weather.init(rawValue:)) { weather = f }
@@ -297,6 +302,11 @@ final class GameModel {
         return "back"
     }
 
+    #if DEBUG
+    /// Groups hidden while hunting the on-device glitch (see the ••• menu).
+    var debugHidden: Set<String> = [] { didSet { scene?.debugHidden = debugHidden } }
+    #endif
+
     /// How the camera follows you; remembered between launches.
     var cameraView = CityScene.CameraView(rawValue: UserDefaults.standard.string(forKey: "giro.camera") ?? "") ?? .classic {
         didSet {
@@ -366,10 +376,6 @@ final class GameModel {
             let what = place.isMonument ? "Sightseeing at the \(place.name)" : place == .cafe ? "Coffee at \(o.name)'s café" : place == .office ? "Payday at \(o.name)'s office"
                 : place == .school ? "Tutoring at \(o.name)'s school" : "Shopping at \(o.name)'s shop"
             showToast("\(what) in \(o.city)", "+\(amount) coins" + (weather == .rain && !place.isMonument ? " · rain bonus" : ""))
-            if let v = store(facing: c) {
-                try? await Task.sleep(for: .seconds(1.1))
-                await enter(v)
-            }
         case .freeRoll(let r, let b):
             player.rolls += r
             scene?.pop(text: "+\(r) roll\(r > 1 ? "s" : "")", at: c, color: 0x5DBB63)

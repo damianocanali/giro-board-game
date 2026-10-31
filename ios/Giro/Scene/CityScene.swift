@@ -67,6 +67,18 @@ final class CityScene {
     var cameraView: CameraView = .classic {
         didSet { if interior == nil { focusOnPawn() } }
     }
+    /// Groups hidden from the debug "Glitch hunt" menu, to find what draws the giant shapes on device.
+    var debugHidden: Set<String> = [] { didSet { applyDebugHidden() } }
+
+    func applyDebugHidden() {
+        for e in ghostEntities.values { e.isEnabled = !debugHidden.contains("players") }
+        trafficRoot.isEnabled = !debugHidden.contains("traffic")
+        decorRoot.isEnabled = !debugHidden.contains("props")
+        fxRoot.isEnabled = !debugHidden.contains("effects")
+        popRoot.isEnabled = !debugHidden.contains("effects")
+        pet?.isEnabled = !debugHidden.contains("players")
+    }
+
     /// Buildings faded because they stand between the camera and you.
     private var seeThrough: Set<Cell> = []
     private var seeThroughClock: Float = 0
@@ -576,14 +588,28 @@ final class CityScene {
         let b = Entity()
         g.addChild(b)
         let variant = (c.x * 7 + c.y * 13) % 3
+        // Upgrades change the shape: more storeys, extensions and rooftop extras per level.
+        let level = t.canUpgrade ? map.level(at: c) : 1
+        let up = Float(level - 1)
         switch t {
         case .house:
             let walls: [UInt32] = [0xF4E2C8, 0xF2C9A0, 0xF7E7A8]
-            part(box(1.1, 0.8, 1.0, r: 0.06), walls[variant], [0, top + 0.4, 0], in: b)
-            part(pyramid(1.24, 0.6), 0xD9653B, [0, top + 0.8, 0], in: b)
+            let bodyH = 0.8 + up * 0.55
+            part(box(1.1, bodyH, 1.0, r: 0.06), walls[variant], [0, top + bodyH / 2, 0], in: b)
+            part(pyramid(1.24, 0.6), 0xD9653B, [0, top + bodyH, 0], in: b)
             part(box(0.24, 0.38, 0.05, r: 0.02), 0x7A4A2A, [0, top + 0.19, 0.51], in: b)
+            for k in 1..<level {
+                for x: Float in [-0.28, 0.28] {
+                    part(box(0.22, 0.2, 0.04, r: 0.02), 0x9FD3EE, [x, top + 0.45 + Float(k) * 0.55, 0.51], in: b)
+                }
+            }
+            if level >= 3 {
+                part(box(0.62, 0.55, 0.85, r: 0.05), walls[(variant + 1) % 3], [0.82, top + 0.275, 0.05], in: b)
+                part(box(0.68, 0.06, 0.9, r: 0.02), 0xB5522E, [0.82, top + 0.58, 0.05], in: b)
+                part(box(0.16, 0.4, 0.16, r: 0.03), 0xB5522E, [-0.32, top + bodyH + 0.4, -0.2], in: b)
+            }
         case .apartments:
-            let h: Float = 2.2 + Float(variant) * 0.5
+            let h: Float = 2.2 + Float(variant) * 0.5 + up * 0.9
             part(box(1.35, h, 1.35, r: 0.06), 0xD9774A, [0, top + h / 2, 0], in: b)
             var y: Float = top + 0.6
             while y < top + h - 0.2 {
@@ -591,13 +617,22 @@ final class CityScene {
                 y += 0.6
             }
             part(box(1.45, 0.12, 1.45, r: 0.04), 0xF4E2C8, [0, top + h + 0.06, 0], in: b)
+            if level >= 3 {
+                part(cylinder(0.45, 0.25), 0x8A5A3B, [0.35, top + h + 0.35, 0.35], in: b)
+                part(cone(0.2, 0.28), 0x6B4A3A, [0.35, top + h + 0.67, 0.35], in: b)
+            }
         case .office:
-            let h: Float = 3.2 + Float(variant) * 0.7
+            let h: Float = 3.2 + Float(variant) * 0.7 + up * 1.2
             part(box(1.45, h, 1.45, r: 0.08), 0x9EC3E6, [0, top + h / 2, 0], in: b)
             var y: Float = top + 0.5
             while y < top + h - 0.2 {
                 part(box(1.5, 0.06, 1.5, r: 0.02), 0xFFFFFF, [0, y, 0], in: b)
                 y += 0.5
+            }
+            if level >= 2 { part(box(0.9, 0.3, 0.9, r: 0.05), 0xD7E6F3, [0, top + h + 0.15, 0], in: b) }
+            if level >= 3 {
+                part(cylinder(1.2, 0.04), 0xDDDDDD, [0, top + h + 0.9, 0], in: b)
+                part(sphere(0.08), 0xE5533D, [0, top + h + 1.52, 0], in: b)
             }
         case .shop:
             part(box(1.5, 0.85, 1.25, r: 0.06), 0xF7EBD4, [0, top + 0.425, 0], in: b)
@@ -606,8 +641,25 @@ final class CityScene {
                 s.orientation = simd_quatf(angle: 0.35, axis: [1, 0, 0])
             }
             part(box(0.9, 0.2, 0.06, r: 0.02), 0xE5533D, [0, top + 0.95, 0.64], in: b)
+            if level >= 2 {
+                // A second floor with windows above the shop.
+                part(box(1.4, 0.6, 1.1, r: 0.05), 0xF2D9B8, [0, top + 1.15, -0.05], in: b)
+                for x: Float in [-0.4, 0, 0.4] { part(box(0.24, 0.24, 0.04, r: 0.02), 0x9FD3EE, [x, top + 1.18, 0.51], in: b) }
+            }
+            if level >= 3 {
+                // A rooftop sign.
+                part(box(1.0, 0.4, 0.08, r: 0.04), 0xE5533D, [0, top + 1.75, 0], in: b)
+                part(box(0.8, 0.22, 0.09), 0xFFF7EC, [0, top + 1.75, 0], in: b)
+            }
         case .cafe:
-            part(box(1.0, 0.7, 0.9, r: 0.06), 0xB8784A, [-0.35, top + 0.35, -0.3], in: b)
+            let cafeH = 0.7 + up * 0.45
+            part(box(1.0, cafeH, 0.9, r: 0.06), 0xB8784A, [-0.35, top + cafeH / 2, -0.3], in: b)
+            if level >= 2 { part(box(1.1, 0.08, 1.0, r: 0.03), 0xF7EBD4, [-0.35, top + cafeH + 0.04, -0.3], in: b) }
+            if level >= 3 {
+                // Tables on a roof terrace.
+                part(cylinder(0.5, 0.025), 0x5B4636, [-0.35, top + cafeH + 0.3, -0.3], in: b)
+                part(cone(0.2, 0.36), 0xE5533D, [-0.35, top + cafeH + 0.6, -0.3], in: b)
+            }
             for (i, p) in [SIMD2<Float>(0.45, 0.35), SIMD2<Float>(-0.2, 0.55)].enumerated() {
                 part(cylinder(0.6, 0.03), 0x5B4636, [p.x, top + 0.3, p.y], in: b)
                 part(cone(0.24, 0.42), i == 0 ? 0xF7EBD4 : 0xE5533D, [p.x, top + 0.7, p.y], in: b)
@@ -618,6 +670,13 @@ final class CityScene {
             part(box(1.68, 0.1, 1.38, r: 0.03), 0xB5522E, [0, top + 1.05, 0], in: b)
             part(cylinder(1.4, 0.03), 0xDDDDDD, [0.7, top + 0.7, 0.75], in: b)
             part(box(0.35, 0.22, 0.02), 0xB49CF0, [0.88, top + 1.25, 0.75], in: b)
+            if level >= 2 { part(box(0.7, 0.7, 1.0, r: 0.05), 0xF2C94C, [-0.95, top + 0.35, -0.1], in: b) }
+            if level >= 3 {
+                // A clock tower.
+                part(box(0.4, 0.7, 0.4, r: 0.04), 0xF5D76E, [0, top + 1.45, 0], in: b)
+                part(cylinder(0.03, 0.13), 0xFFFFFF, [0, top + 1.55, 0.21], in: b).orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
+                part(pyramid(0.5, 0.35), 0xB5522E, [0, top + 1.8, 0], in: b)
+            }
         case .park:
             part(box(1.88, 0.06, 1.88, r: 0.05), 0x7CC36B, [0, top + 0.03, 0], in: b)
             addTree([-0.5, top, -0.45], 1.15, into: b)
@@ -643,26 +702,8 @@ final class CityScene {
         default:
             buildMonument(t, into: b)
         }
-        // Upgraded buildings grow a little and wear gold badges, one per level.
-        let level = map.level(at: c)
-        if level > 1 && t.canUpgrade {
-            let grow = 1 + 0.1 * Float(level - 1)
-            b.scale = [grow, grow, grow]
-            part(box(1.86, 0.07, 1.86, r: 0.03), 0xE0A100, [0, top + 0.035, 0], in: g)
-            let height = b.visualBounds(relativeTo: g).max.y
-            for i in 0..<(level - 1) {
-                let x = (Float(i) - Float(level - 2) / 2) * 0.42
-                let coin = ModelEntity(mesh: cylinder(0.06, 0.18), materials: [unlit(0xF5B700)])
-                coin.position = [x, height + 0.35, 0]
-                coin.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
-                coin.name = "badge"
-                g.addChild(coin)
-                let star = ModelEntity(mesh: sphere(0.07), materials: [unlit(0xFFFFFF)])
-                star.position = [x, height + 0.35, 0.04]
-                star.scale = [1, 1, 0.3]
-                g.addChild(star)
-            }
-        }
+        // Upgraded plots get a gold trim around the edge.
+        if level > 1 { part(box(1.86, 0.07, 1.86, r: 0.03), 0xE0A100, [0, top + 0.035, 0], in: g) }
         // In build mode everything that isn't your land fades back.
         if isBuildMode && map.ownership(of: c) != .mine { g.components.set(OpacityComponent(opacity: 0.22)) }
         // Face the building toward its street.
@@ -935,9 +976,19 @@ final class CityScene {
         await walk(pawn, to: last ? walkSpot(c) : sideSpot(c, heading: d), duration: first || last ? Self.stepTime * 1.25 : Self.stepTime, timing: timing)
     }
 
-    /// The sidewalk on your right as you walk along a street.
+    /// The sidewalk on your right as you walk along a street. At a crossing, where there is road on
+    /// your right, a corner of the crossing instead, so you never stand in the middle of the road.
     func sideSpot(_ c: Cell, heading d: Dir) -> SIMD3<Float> {
-        Self.position(c, y: Self.walkTop) + SIMD3<Float>(-Float(d.dy), 0, Float(d.dx)) * Self.walkInset
+        func v(_ d: Dir) -> SIMD3<Float> { [Float(d.dx), 0, Float(d.dy)] }
+        let base = Self.position(c, y: Self.walkTop)
+        let right = Dir(-d.dy, d.dx), left = Dir(d.dy, -d.dx)
+        if !map.isRoad(c.moved(right)) { return base + v(right) * Self.walkInset }
+        for (a, b) in [(right, d.reversed), (right, d), (left, d.reversed), (left, d)] {
+            if let t = map.tile(Cell(c.x + a.dx + b.dx, c.y + a.dy + b.dy)), t != .road {
+                return base + (v(a) + v(b)) * Self.walkInset
+            }
+        }
+        return walkSpot(c)
     }
 
     private func walk(_ e: Entity, to: SIMD3<Float>, duration: TimeInterval, timing: AnimationTimingFunction = .linear) async {
@@ -1459,7 +1510,7 @@ final class CityScene {
         for e in ghostEntities.values { animateLimbs(e, dt: dt) }
         if interior != nil { animateInterior(dt) }
         // No rain or snow indoors.
-        weatherRoot.isEnabled = interior == nil
+        weatherRoot.isEnabled = interior == nil && !debugHidden.contains("weather")
         updateCars(dt)
         updatePet(dt)
         animateWeather(weatherRoot, center: target, eyeHeight: eye.y, dt: dt, clock: clock)
