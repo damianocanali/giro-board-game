@@ -78,8 +78,8 @@ final class GameModel {
     var showShop = false
     /// The store you are inside, if any.
     var storeVisit: StoreVisit?
-    /// Walking through a door: the screen fades to this message with a spinner.
-    var doorFade: String?
+    /// Walking through a door: a circle closes on the doorway and opens on the other side.
+    var iris: Iris?
     #if DEBUG
     @ObservationIgnored var debugStore: StoreVisit?
     #endif
@@ -258,16 +258,20 @@ final class GameModel {
         sfx.play(.dice, volume: 0.6)
         await scene.throwDie(showing: v)
         showRolled(v)
-        for _ in 0..<v {
+        // Each start from standing (the first step, or after stopping at a fork) eases in.
+        var fromRest = true
+        for i in 0..<v {
             let opts = map.options(at: player.position, heading: player.heading)
             guard !opts.isEmpty else { break }
             var d = opts[0]
             if opts.count > 1 {
                 let pick = await chooseFork(opts)
                 d = opts[pick]
+                fromRest = true
             }
             let next = player.position.moved(d)
-            await scene.walkPawn(to: next)
+            await scene.walkPawn(to: next, first: fromRest, last: i == v - 1)
+            fromRest = false
             haptic.impactOccurred(intensity: 0.5)
             player.position = next
             player.heading = d

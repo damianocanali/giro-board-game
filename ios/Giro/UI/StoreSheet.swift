@@ -90,18 +90,30 @@ struct InteriorHUD: View {
     }
 }
 
-/// Walking through a door: the screen fades to paper with a spinner.
-struct DoorFade: View {
-    let text: String
+/// The circle wipe for doors: a dark screen with a round hole that shrinks onto the doorway
+/// and grows again on the other side. The place's name shows while it is shut.
+struct IrisWipe: View {
+    let iris: Iris
 
     var body: some View {
-        ZStack {
-            Theme.paper.ignoresSafeArea()
-            VStack(spacing: 14) {
-                ProgressView().controlSize(.large).tint(Theme.ink)
-                Text(text).font(Theme.body(17, .bold)).foregroundStyle(Theme.ink)
+        GeometryReader { g in
+            let c = iris.center ?? CGPoint(x: g.size.width / 2, y: g.size.height / 2)
+            // Big enough to clear every corner from wherever the circle is centred.
+            let r = iris.closed ? 0 : hypot(max(c.x, g.size.width - c.x), max(c.y, g.size.height - c.y)) + 20
+            ZStack {
+                Theme.ink
+                    .mask {
+                        Rectangle()
+                            .overlay { Circle().frame(width: r * 2, height: r * 2).position(c).blendMode(.destinationOut) }
+                            .compositingGroup()
+                    }
+                Text(iris.label)
+                    .font(Theme.display(28)).foregroundStyle(Theme.paper)
+                    .opacity(iris.closed ? 1 : 0)
             }
         }
+        .ignoresSafeArea()
+        .allowsHitTesting(true)
     }
 }
 

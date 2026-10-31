@@ -80,11 +80,10 @@ struct ContentView: View {
                 SkinsSheet(model: model).transition(.opacity.combined(with: .scale(scale: 0.94)))
             }
 
-            if let t = model.doorFade {
-                DoorFade(text: t).transition(.opacity)
+            if let i = model.iris {
+                IrisWipe(iris: i)
             }
         }
-        .animation(.easeInOut(duration: 0.4), value: model.doorFade)
         .animation(.spring(duration: 0.3), value: model.showShop)
         .animation(.spring(duration: 0.3), value: model.showSkins)
         .animation(.easeInOut(duration: 0.25), value: model.stampEvent)

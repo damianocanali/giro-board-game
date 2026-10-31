@@ -1,6 +1,13 @@
-import Foundation
+import SwiftUI
 
 /// Being inside one store: what kind it is and whose it is.
+/// The circle wipe used for going in and out of buildings. `center` nil means the middle of the screen.
+struct Iris: Equatable {
+    var center: CGPoint?
+    var closed = false
+    var label: String
+}
+
 struct StoreVisit: Identifiable, Equatable {
     var cell: Cell
     var kind: StoreKind
@@ -28,7 +35,7 @@ extension GameModel {
 
     /// The store next to where you are standing, while nothing else is going on.
     var nearbyStore: StoreVisit? {
-        guard !isBusy, !isBuilding, forkChoices.isEmpty, storeVisit == nil, doorFade == nil else { return nil }
+        guard !isBusy, !isBuilding, forkChoices.isEmpty, storeVisit == nil, iris == nil else { return nil }
         return store(facing: player.position)
     }
 
@@ -37,31 +44,48 @@ extension GameModel {
         Task { await enter(v) }
     }
 
-    /// Walk to the door, fade out with a spinner, and come in to the room.
+    /// The camera glides to the door, it swings open, you walk into the doorway,
+    /// and a circle closes on it and opens again inside the room.
     func enter(_ v: StoreVisit) async {
-        guard storeVisit == nil, doorFade == nil, let scene else { return }
+        guard storeVisit == nil, iris == nil, let scene else { return }
         sfx.play(.coin, volume: 0.3)
-        await scene.walkTowardDoor(of: v.cell)
-        doorFade = v.kind == .home ? "Going home…" : "Going into \(v.owner) \(v.kind.name.lowercased())…"
-        try? await Task.sleep(for: .milliseconds(450))
+        scene.openDoor(of: v.cell)
+        await scene.walkIntoDoorway()
+        await closeIris(on: scene.doorScreenPoint, label: v.kind == .home ? "Home" : "\(v.owner) \(v.kind.name.lowercased())")
         scene.showInterior(v, skin: player.skin, outfit: player.outfit, pet: player.petItem)
         storeVisit = v
-        try? await Task.sleep(for: .milliseconds(550))
-        doorFade = nil
+        try? await Task.sleep(for: .milliseconds(200))
+        await openIris(on: nil)
     }
 
-    /// Fade out, back on the street where you were.
+    /// The same circle in reverse: it opens on the doorway, you step out, and the door shuts behind you.
     func leaveStore() {
-        guard storeVisit != nil, doorFade == nil else { return }
-        doorFade = "Back to the street…"
+        guard storeVisit != nil, iris == nil else { return }
         Task {
-            try? await Task.sleep(for: .milliseconds(450))
+            await closeIris(on: nil, label: "")
             storeVisit = nil
             scene?.hideInterior()
             scene?.placePawn(at: player.position, heading: player.heading)
-            try? await Task.sleep(for: .milliseconds(350))
-            doorFade = nil
+            try? await Task.sleep(for: .milliseconds(150))
+            async let out: Void = scene?.stepOutOfDoorway(to: player.position) ?? ()
+            await openIris(on: scene?.doorScreenPoint)
+            await out
         }
+    }
+
+    private func closeIris(on p: CGPoint?, label: String) async {
+        iris = Iris(center: p, label: label)
+        try? await Task.sleep(for: .milliseconds(30))
+        withAnimation(.easeIn(duration: 0.45)) { iris?.closed = true }
+        try? await Task.sleep(for: .milliseconds(500))
+    }
+
+    private func openIris(on p: CGPoint?) async {
+        iris?.center = p
+        try? await Task.sleep(for: .milliseconds(30))
+        withAnimation(.easeOut(duration: 0.5)) { iris?.closed = false }
+        try? await Task.sleep(for: .milliseconds(520))
+        iris = nil
     }
 
     /// A building was tapped in the city: go in if it is a store right next to you.

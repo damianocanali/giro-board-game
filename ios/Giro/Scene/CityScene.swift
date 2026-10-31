@@ -43,6 +43,10 @@ final class CityScene {
     /// Until when each character is walking (scene clock), and how far its arms and legs swing now.
     private var walkUntil: [ObjectIdentifier: Float] = [:]
     private var swing: [ObjectIdentifier: Float] = [:]
+    /// Dust kicked up by footsteps, with each puff's age in seconds.
+    private var puffs: [(entity: Entity, age: Float)] = []
+    /// The door of the building you are walking into, its hinge and the doorway point on the street side.
+    private var door: (root: Entity, hinge: Entity, point: SIMD3<Float>, dir: SIMD3<Float>)?
 
     // Camera rig (orbit around a target that can follow the pawn)
     var theta: Float = -0.8
@@ -908,22 +912,123 @@ final class CityScene {
     /// Seconds to walk one square.
     static let stepTime: TimeInterval = 0.3
 
-    /// Walk one square at a steady pace, turning smoothly at corners.
-    func walkPawn(to c: Cell) async {
-        await walk(pawn, to: walkSpot(c), duration: Self.stepTime)
+    /// Walk one square, turning smoothly at corners. The first step from standing eases in
+    /// and the last one eases out, so a roll starts and stops gently.
+    func walkPawn(to c: Cell, first: Bool, last: Bool) async {
+        puff(at: pawn.position)
+        let timing: AnimationTimingFunction = first && last ? .easeInOut : first ? .easeIn : last ? .easeOut : .linear
+        await walk(pawn, to: walkSpot(c), duration: first || last ? Self.stepTime * 1.25 : Self.stepTime, timing: timing)
     }
 
-    /// A few steps toward a building's door, before going in.
-    func walkTowardDoor(of c: Cell) async {
-        let door = Self.position(c, y: pawn.position.y)
-        await walk(pawn, to: pawn.position + (door - pawn.position) * 0.4, duration: 0.45)
-    }
-
-    private func walk(_ e: Entity, to: SIMD3<Float>, duration: TimeInterval) async {
+    private func walk(_ e: Entity, to: SIMD3<Float>, duration: TimeInterval, timing: AnimationTimingFunction = .linear) async {
         let from = e.position
         let rot = simd_length(to - from) > 0.001 ? simd_quatf(angle: atan2(to.x - from.x, to.z - from.z), axis: [0, 1, 0]) : e.orientation
         walkUntil[ObjectIdentifier(e)] = clock + Float(duration) + 0.12
-        await animate(e, to: Transform(scale: e.scale, rotation: rot, translation: to), duration: duration, timing: .linear)
+        await animate(e, to: Transform(scale: e.scale, rotation: rot, translation: to), duration: duration, timing: timing)
+    }
+
+    // MARK: Doors
+
+    /// How far a building's wall stands from its square's centre, for placing a door on it.
+    private func wallDepth(_ t: Tile) -> Float {
+        switch t {
+        case .house: 0.52
+        case .apartments: 0.69
+        case .shop: 0.64
+        case .cafe: 0.56
+        default: 0.62
+        }
+    }
+
+    /// Glide the camera in to the building's wall facing you and swing a door open there.
+    func openDoor(of c: Cell) {
+        closeDoor()
+        let centre = Self.position(c, y: Self.blockTop)
+        let d = pawn.position - centre
+        let dir: SIMD3<Float> = abs(d.x) > abs(d.z) ? [d.x > 0 ? 1 : -1, 0, 0] : [0, 0, d.z > 0 ? 1 : -1]
+        let face = simd_quatf(angle: atan2(dir.x, dir.z), axis: [0, 1, 0])
+        let side = face.act([1, 0, 0])
+        let wall = centre + dir * wallDepth(map.tiles[c.y][c.x])
+
+        let root = Entity()
+        let doorway = part(box(0.36, 0.54, 0.02), 0x3A2A20, wall + [0, 0.27, 0] + dir * 0.005, in: root)
+        doorway.orientation = face
+        let hinge = Entity()
+        hinge.position = wall + dir * 0.02 - side * 0.17
+        hinge.orientation = face
+        part(box(0.34, 0.52, 0.04, r: 0.015), 0x8A5A3B, [0.17, 0.26, 0], in: hinge)
+        part(sphere(0.025), 0xF5C542, [0.29, 0.26, 0.03], in: hinge)
+        root.addChild(hinge)
+        world.addChild(root)
+        door = (root, hinge, wall * [1, 0, 1] + [0, pawn.position.y, 0], dir)
+        hinge.move(to: Transform(rotation: face * simd_quatf(angle: 1.7, axis: [0, 1, 0]), translation: hinge.position),
+                   relativeTo: hinge.parent, duration: 0.45, timingFunction: .easeInOut)
+
+        followPawn = false
+        goalTarget = wall * [1, 0, 1]
+        goalDistance = 10
+    }
+
+    /// Swing the door shut and take it away.
+    func closeDoor() {
+        guard let d = door else { return }
+        door = nil
+        let face = simd_quatf(angle: atan2(d.dir.x, d.dir.z), axis: [0, 1, 0])
+        d.hinge.move(to: Transform(rotation: face, translation: d.hinge.position), relativeTo: d.hinge.parent, duration: 0.35, timingFunction: .easeIn)
+        Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            d.root.removeFromParent()
+        }
+    }
+
+    /// Walk right up into the open doorway.
+    func walkIntoDoorway() async {
+        guard let d = door else { return }
+        await walk(pawn, to: d.point - d.dir * 0.02, duration: 0.7, timing: .easeInOut)
+    }
+
+    /// Back outside: appear in the doorway and step out onto the square, then shut the door.
+    func stepOutOfDoorway(to c: Cell) async {
+        if let d = door {
+            pawn.position = d.point
+            pawn.orientation = simd_quatf(angle: atan2(d.dir.x, d.dir.z), axis: [0, 1, 0])
+        }
+        await walk(pawn, to: walkSpot(c), duration: 0.6, timing: .easeOut)
+        closeDoor()
+        focusOnPawn()
+    }
+
+    /// Where a point in the world shows on screen, for centring the iris wipe on it.
+    func screenPoint(_ p: SIMD3<Float>) -> CGPoint? { arView.project(p) }
+    var doorScreenPoint: CGPoint? { door.flatMap { screenPoint($0.point + [0, 0.3, 0]) } }
+    var pawnScreenPoint: CGPoint? { screenPoint(pawn.position + [0, 0.35, 0]) }
+
+    // MARK: Footsteps
+
+    /// A few specks of dust at the feet that drift up and fade.
+    private func puff(at p: SIMD3<Float>) {
+        for _ in 0..<3 {
+            let e = ModelEntity(mesh: sphere(0.05), materials: [mat(0xF3E9DA)])
+            e.position = p + [Float.random(in: -0.12...0.12), 0.03, Float.random(in: -0.12...0.12)]
+            e.components.set(DynamicLightShadowComponent(castsShadow: false))
+            fxRoot.addChild(e)
+            puffs.append((e, 0))
+        }
+    }
+
+    private func updatePuffs(_ dt: Float) {
+        guard !puffs.isEmpty else { return }
+        for i in puffs.indices {
+            puffs[i].age += dt
+            let e = puffs[i].entity, a = puffs[i].age
+            e.scale = SIMD3<Float>(repeating: 1 + a * 4)
+            e.position.y += dt * 0.25
+            e.components.set(OpacityComponent(opacity: max(0, 0.7 - a * 1.6)))
+        }
+        puffs.removeAll { p in
+            if p.age > 0.45 { p.entity.removeFromParent(); return true }
+            return false
+        }
     }
 
     /// Swing arms and legs while a character walks, and ease back to standing when it stops.
@@ -938,7 +1043,10 @@ final class CityScene {
         body.findEntity(named: "legR")?.orientation = simd_quatf(angle: -s * 0.6, axis: [1, 0, 0])
         body.findEntity(named: "armL")?.orientation = simd_quatf(angle: -s * 0.5, axis: [1, 0, 0])
         body.findEntity(named: "armR")?.orientation = simd_quatf(angle: s * 0.5, axis: [1, 0, 0])
-        body.findEntity(named: "look")?.position.y = abs(sin(clock * 13)) * a * 0.04
+        if let look = body.findEntity(named: "look") {
+            look.position.y = abs(sin(clock * 13)) * a * 0.04
+            look.orientation = simd_quatf(angle: sin(clock * 6.5) * a * 0.07, axis: [0, 0, 1])
+        }
     }
 
     func ridePawn(along path: [Cell]) async {
@@ -1257,7 +1365,11 @@ final class CityScene {
     private func update(dt: Float) {
         clock += dt
         if showcase { theta += dt * 0.06 }
-        if followPawn { goalTarget = pawn.position * SIMD3<Float>(1, 0, 1) }
+        if followPawn {
+            // Look a little ahead of where you are walking.
+            let lead = (swing[ObjectIdentifier(pawn)] ?? 0) * 1.6
+            goalTarget = (pawn.position + pawn.orientation.act([0, 0, 1]) * lead) * SIMD3<Float>(1, 0, 1)
+        }
         let k = min(1, dt * 5), kd = min(1, dt * 4)
         target += (goalTarget - target) * k
         distance += (goalDistance - distance) * kd
@@ -1271,6 +1383,7 @@ final class CityScene {
             e.position.y = 0.75 + sin(clock * 5.5) * 0.1
         }
         animateLimbs(pawn, dt: dt)
+        updatePuffs(dt)
         for e in ghostEntities.values { animateLimbs(e, dt: dt) }
         if interior != nil { animateInterior(dt) }
         // No rain or snow indoors.
