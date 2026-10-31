@@ -118,6 +118,11 @@ private struct TopBar: View {
             .accessibilityLabel("\(model.player.rolls) rolls")
             Spacer(minLength: 0)
             Menu {
+                Section("View") {
+                    ForEach(CityScene.CameraView.allCases) { v in
+                        Button { model.cameraView = v } label: { Label(v.name, systemImage: model.cameraView == v ? "checkmark" : v.icon) }
+                    }
+                }
                 Section("Camera") {
                     Button { model.scene?.focusOnPawn() } label: { Label("Follow me", systemImage: "figure.walk") }
                     Button { model.scene?.focusOnMyBlocks() } label: { Label("My block", systemImage: "house") }

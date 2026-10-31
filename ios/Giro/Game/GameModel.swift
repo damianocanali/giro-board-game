@@ -255,7 +255,6 @@ final class GameModel {
         haptic.impactOccurred()
         let v = forced ?? Int.random(in: 1...6)
         scene.followPawn = true
-        sfx.play(.dice, volume: 0.6)
         await scene.throwDie(showing: v)
         showRolled(v)
         // Each start from standing (the first step, or after stopping at a fork) eases in.
@@ -270,7 +269,7 @@ final class GameModel {
                 fromRest = true
             }
             let next = player.position.moved(d)
-            await scene.walkPawn(to: next, first: fromRest, last: i == v - 1)
+            await scene.walkPawn(to: next, heading: d, first: fromRest, last: i == v - 1)
             fromRest = false
             haptic.impactOccurred(intensity: 0.5)
             player.position = next
@@ -290,9 +289,25 @@ final class GameModel {
         }
     }
 
+    /// Which way a fork goes relative to where you are walking, so two roads to the same place can be told apart.
+    static func turn(_ d: Dir, from h: Dir) -> String {
+        if d == h { return "straight on" }
+        if d == Dir(-h.dy, h.dx) { return "right" }
+        if d == Dir(h.dy, -h.dx) { return "left" }
+        return "back"
+    }
+
+    /// How the camera follows you; remembered between launches.
+    var cameraView = CityScene.CameraView(rawValue: UserDefaults.standard.string(forKey: "giro.camera") ?? "") ?? .classic {
+        didSet {
+            UserDefaults.standard.set(cameraView.rawValue, forKey: "giro.camera")
+            scene?.cameraView = cameraView
+        }
+    }
+
     private func chooseFork(_ opts: [Dir]) async -> Int {
         forkChoices = opts.enumerated().map { i, d in
-            ForkChoice(id: i, dir: d, label: map.destinationLabel(from: player.position, toward: d, stamps: player.stamps))
+            ForkChoice(id: i, dir: d, label: map.destinationLabel(from: player.position, toward: d, stamps: player.stamps) + " · " + Self.turn(d, from: player.heading))
         }
         scene?.showForkArrows(at: player.position, dirs: opts)
         let i = await withCheckedContinuation { forkContinuation = $0 }
@@ -692,7 +707,7 @@ final class GameModel {
             let o = map.options(at: g.cell, heading: g.heading)
             guard let d = o.randomElement() else { break }
             let next = g.cell.moved(d)
-            await scene.walkGhost(id, to: next)
+            await scene.walkGhost(id, to: next, heading: d)
             ghosts[i].cell = next
             ghosts[i].heading = d
         }

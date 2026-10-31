@@ -21,6 +21,7 @@ struct CityView: UIViewRepresentable {
         scene.onTapPlace = { [weak model] c in model?.tapPlace(c) }
         scene.setPet(model.player.petItem)
         model.scene = scene
+        scene.cameraView = model.cameraView
         if model.showMenu { scene.setShowcase(true) }
         scene.setWeather(model.weather)
         scene.setHoliday(model.holiday, ownPack: model.holiday.map { model.player.packs.contains($0.id) } ?? false)

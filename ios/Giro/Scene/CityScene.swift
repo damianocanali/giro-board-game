@@ -56,6 +56,20 @@ final class CityScene {
     var target = SIMD3<Float>(0, 0, 0)
     var goalTarget = SIMD3<Float>(0, 0, 0)
     var followPawn = true
+
+    /// How the camera follows you: a high three-quarter view, close behind you, or straight down like a map.
+    enum CameraView: String, CaseIterable, Identifiable {
+        case classic, close, top
+        var id: String { rawValue }
+        var name: String { switch self { case .classic: "Classic"; case .close: "Behind me"; case .top: "Map" } }
+        var icon: String { switch self { case .classic: "view.3d"; case .close: "figure.walk"; case .top: "map" } }
+    }
+    var cameraView: CameraView = .classic {
+        didSet { if interior == nil { focusOnPawn() } }
+    }
+    /// Buildings faded because they stand between the camera and you.
+    private var seeThrough: Set<Cell> = []
+    private var seeThroughClock: Float = 0
     /// Title menu: the camera slowly circles the whole city.
     var showcase = false
 
@@ -71,10 +85,10 @@ final class CityScene {
     static let streetTop: Float = 0.22
     /// Width of the raised sidewalk along each street edge, and how far it sits above the road.
     static let sidewalk: Float = 0.4
-    static let curbRise: Float = 0.08
+    static let curbRise: Float = 0.05
     static var walkTop: Float { streetTop + curbRise }
     /// Half the road tile; a sidewalk's centre line sits `walkInset` in from the tile edge.
-    static let tileHalf: Float = 0.92
+    static let tileHalf: Float = 1.0
     static var walkInset: Float { tileHalf - sidewalk / 2 }
     /// Distance from the street's centre line to the middle of each driving lane.
     static var laneOffset: Float { (tileHalf - sidewalk) / 2 }
@@ -516,7 +530,7 @@ final class CityScene {
         let t = map.tiles[c.y][c.x]
         if t == .road {
             let crossing = map.isIntersection(c)
-            part(box(1.84, Self.streetTop, 1.84, r: 0.08), crossing ? Theme.crossingHex : Theme.streetHex, [0, Self.streetTop / 2, 0], in: g)
+            part(box(2.0, Self.streetTop, 2.0), crossing ? Theme.crossingHex : Theme.streetHex, [0, Self.streetTop / 2, 0], in: g)
             buildSidewalks(c, into: g)
             // Squares with an effect get a coloured paving slab on the sidewalk, where the pawn stops.
             if !crossing, let f = map.frontage(of: c), let k = map.squareKind(f) {
@@ -540,11 +554,11 @@ final class CityScene {
         for d in Dir.optionOrder { open[d] = map.tile(c.moved(d)).map { $0 == .road } ?? false }
         for d in Dir.optionOrder where open[d] == false {
             let full = 2 * Self.tileHalf
-            part(box(d.dx == 0 ? full : w, h, d.dx == 0 ? w : full, r: 0.02), Theme.sidewalkHex,
+            part(box(d.dx == 0 ? full : w, h, d.dx == 0 ? w : full), Theme.sidewalkHex,
                  [Float(d.dx) * inset, y, Float(d.dy) * inset], in: g)
         }
         for (dx, dy) in [(1, 1), (-1, 1), (1, -1), (-1, -1)] where open[Dir(dx, 0)] == true && open[Dir(0, dy)] == true {
-            part(box(w, h, w, r: 0.02), Theme.sidewalkHex, [Float(dx) * inset, y, Float(dy) * inset], in: g)
+            part(box(w, h, w), Theme.sidewalkHex, [Float(dx) * inset, y, Float(dy) * inset], in: g)
         }
         let eastWest = open[.east] == true && open[.west] == true && open[.north] == false && open[.south] == false
         let northSouth = open[.north] == true && open[.south] == true && open[.east] == false && open[.west] == false
@@ -914,10 +928,16 @@ final class CityScene {
 
     /// Walk one square, turning smoothly at corners. The first step from standing eases in
     /// and the last one eases out, so a roll starts and stops gently.
-    func walkPawn(to c: Cell, first: Bool, last: Bool) async {
+    /// Keeps to the right-hand sidewalk on the way, and only on the last square crosses to the building it stops at.
+    func walkPawn(to c: Cell, heading d: Dir, first: Bool, last: Bool) async {
         puff(at: pawn.position)
         let timing: AnimationTimingFunction = first && last ? .easeInOut : first ? .easeIn : last ? .easeOut : .linear
-        await walk(pawn, to: walkSpot(c), duration: first || last ? Self.stepTime * 1.25 : Self.stepTime, timing: timing)
+        await walk(pawn, to: last ? walkSpot(c) : sideSpot(c, heading: d), duration: first || last ? Self.stepTime * 1.25 : Self.stepTime, timing: timing)
+    }
+
+    /// The sidewalk on your right as you walk along a street.
+    func sideSpot(_ c: Cell, heading d: Dir) -> SIMD3<Float> {
+        Self.position(c, y: Self.walkTop) + SIMD3<Float>(-Float(d.dy), 0, Float(d.dx)) * Self.walkInset
     }
 
     private func walk(_ e: Entity, to: SIMD3<Float>, duration: TimeInterval, timing: AnimationTimingFunction = .linear) async {
@@ -1003,6 +1023,41 @@ final class CityScene {
     var doorScreenPoint: CGPoint? { door.flatMap { screenPoint($0.point + [0, 0.3, 0]) } }
     var pawnScreenPoint: CGPoint? { screenPoint(pawn.position + [0, 0.35, 0]) }
 
+    // MARK: Seeing yourself
+
+    /// Roughly how tall what stands on a square is, for deciding whether it hides you.
+    private func height(of t: Tile) -> Float {
+        switch t {
+        case .road, .empty, .plaza, .busStop: 0
+        case .house, .shop, .cafe, .park: 1.3
+        case .school: 1.5
+        case .apartments: 3.5
+        case .office: 5
+        default: t.isMonument ? 4 : 1.3
+        }
+    }
+
+    /// Fade the buildings standing between the camera and you, so you never lose sight of yourself.
+    private func updateSeeThrough(eye: SIMD3<Float>) {
+        let head = pawn.position + [0, 0.6, 0]
+        var hiding: Set<Cell> = []
+        let steps = Int(simd_length(eye - head) / 0.4)
+        for i in 1..<max(2, steps) {
+            let p = head + (eye - head) * (Float(i) / Float(steps))
+            let c = Cell(Int(((p.x + 29) / Self.cell).rounded()), Int(((p.z + 29) / Self.cell).rounded()))
+            guard map.inBounds(c), !hiding.contains(c) else { continue }
+            if Self.blockTop + height(of: map.tiles[c.y][c.x]) > p.y { hiding.insert(c) }
+        }
+        guard hiding != seeThrough else { return }
+        for c in seeThrough.subtracting(hiding) where !isBuildMode {
+            cellEntities[c]?.components.remove(OpacityComponent.self)
+        }
+        for c in hiding.subtracting(seeThrough) {
+            cellEntities[c]?.components.set(OpacityComponent(opacity: 0.25))
+        }
+        seeThrough = hiding
+    }
+
     // MARK: Footsteps
 
     /// A few specks of dust at the feet that drift up and fade.
@@ -1066,9 +1121,9 @@ final class CityScene {
         await animate(pawn, to: Transform(scale: pawn.scale, rotation: pawn.orientation, translation: end), duration: 0.2, timing: .easeIn)
     }
 
-    func walkGhost(_ id: Int, to c: Cell) async {
+    func walkGhost(_ id: Int, to c: Cell, heading d: Dir) async {
         guard let e = ghostEntities[id] else { return }
-        await walk(e, to: walkSpot(c) + (ghostOffsets[id] ?? .zero), duration: 0.24)
+        await walk(e, to: sideSpot(c, heading: d) + (ghostOffsets[id] ?? .zero) * 0.4, duration: 0.24)
     }
 
     private func makeBus() -> Entity {
@@ -1309,7 +1364,11 @@ final class CityScene {
 
     func focusOnPawn() {
         followPawn = true
-        goalDistance = 22
+        switch cameraView {
+        case .classic: goalDistance = 22; phi = 0.92
+        case .close: goalDistance = 11; phi = 0.98
+        case .top: goalDistance = 34; phi = 0.28
+        }
         #if DEBUG
         // `-giroZoom <distance>` holds the camera closer (for screenshots).
         let z = UserDefaults.standard.float(forKey: "giroZoom")
@@ -1343,12 +1402,12 @@ final class CityScene {
     func orbit(by translation: CGPoint) {
         guard interior == nil else { return }
         theta += Float(translation.x) * 0.006
-        phi = max(0.35, min(1.3, phi - Float(translation.y) * 0.005))
+        phi = max(0.2, min(1.05, phi - Float(translation.y) * 0.005))
     }
 
     func zoom(by scale: CGFloat) {
         guard interior == nil else { return }
-        goalDistance = max(6, min(130, goalDistance / Float(scale)))
+        goalDistance = max(8, min(130, goalDistance / Float(scale)))
     }
 
     func handleTap(at point: CGPoint) {
@@ -1370,11 +1429,24 @@ final class CityScene {
             let lead = (swing[ObjectIdentifier(pawn)] ?? 0) * 1.6
             goalTarget = (pawn.position + pawn.orientation.act([0, 0, 1]) * lead) * SIMD3<Float>(1, 0, 1)
         }
+        if followPawn && cameraView == .close && interior == nil {
+            // Swing round behind you as you turn.
+            let f = pawn.orientation.act([0, 0, 1])
+            let want = atan2(-f.z, -f.x)
+            theta += remainder(want - theta, 2 * .pi) * min(1, dt * 2.5)
+        }
         let k = min(1, dt * 5), kd = min(1, dt * 4)
         target += (goalTarget - target) * k
         distance += (goalDistance - distance) * kd
-        let eye = target + SIMD3<Float>(cos(theta) * sin(phi), cos(phi), sin(theta) * sin(phi)) * distance
+        var eye = target + SIMD3<Float>(cos(theta) * sin(phi), cos(phi), sin(theta) * sin(phi)) * distance
+        // Stay above the rooftops: down among the towers, walls right at the lens break into giant shards.
+        if interior == nil { eye.y = max(eye.y, 6) }
         camera.look(at: target, from: eye, relativeTo: nil)
+        seeThroughClock += dt
+        if seeThroughClock > 0.15, interior == nil {
+            seeThroughClock = 0
+            updateSeeThrough(eye: eye)
+        }
 
         for (i, e) in coinRoot.children.enumerated() {
             e.orientation = simd_quatf(angle: clock * 2.2 + Float(i), axis: [0, 1, 0]) * simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
